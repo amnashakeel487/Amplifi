@@ -33,11 +33,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Modal } from '@/components/ui/modal';
+import { Select } from '@/components/ui/select';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { PlatformCounters } from '@/components/posts/PlatformCounters';
 import { MediaPreviewLightbox, MediaAsset } from '@/components/media/MediaPreviewLightbox';
 import { PublishingChecklistModal } from '@/components/publishing/PublishingChecklistModal';
 import { GoogleDocsBriefPanel } from '@/components/google-docs/GoogleDocsBriefPanel';
+import { FormattedContent } from '@/components/ui/formatted-content';
+import { CopyTextActions } from '@/components/ui/copy-text-actions';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
 
 export const ApprovalQueuePage: React.FC = () => {
@@ -90,6 +93,11 @@ export const ApprovalQueuePage: React.FC = () => {
     new Date(Date.now() + 86400000).toISOString().slice(0, 16)
   );
 
+  // Publisher Choice Modal (Requirement 6: "I will publish myself" vs "Assign Manager to publish")
+  const [publisherAssignModalOpen, setPublisherAssignModalOpen] = useState(false);
+  const [publishingChoice, setPublishingChoice] = useState<'self' | 'manager'>('self');
+  const [selectedManagerId, setSelectedManagerId] = useState<string>('user-manager-01');
+
   // Dialog for Rejection & Revision
   const [decisionModal, setDecisionModal] = useState<{
     open: boolean;
@@ -97,12 +105,22 @@ export const ApprovalQueuePage: React.FC = () => {
   }>({ open: false, type: 'revision' });
   const [decisionReason, setDecisionReason] = useState('');
 
-  // Sample Media Assets for Lightbox
+  // Sample or Synced Media Assets for Lightbox Preview
   const mediaAssets: MediaAsset[] = useMemo(() => {
+    if (activePost?.assets && activePost.assets.length > 0) {
+      return activePost.assets.map(a => ({
+        id: a.id,
+        title: a.file_name,
+        url: a.thumbnail_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200',
+        type: a.file_type.includes('video') ? ('video' as const) : ('image' as const),
+        sizeBytes: a.file_size_bytes,
+        aspectRatio: '1:1',
+      }));
+    }
     return [
       {
         id: 'asset-1',
-        title: 'Primary Campaign Asset (High-Res)',
+        title: 'Primary Campaign Asset (Drive)',
         url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200',
         type: 'image',
         sizeBytes: 4200000,
@@ -110,13 +128,18 @@ export const ApprovalQueuePage: React.FC = () => {
       },
       {
         id: 'asset-2',
-        title: 'Story & Reel Motion Cut',
+        title: 'Motion Deliverable (Drive)',
         url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1200',
         type: 'image',
         sizeBytes: 8100000,
         aspectRatio: '9:16',
       },
     ];
+  }, [activePost]);
+
+  // Managers list for publishing assignment
+  const managers = useMemo(() => {
+    return mockDb.getUsers().filter(u => u.role === 'manager');
   }, []);
 
   const refreshPost = (updatedId: string, updates: Partial<Post>) => {
@@ -126,21 +149,51 @@ export const ApprovalQueuePage: React.FC = () => {
 
   const handleApprove = () => {
     if (!activePost) return;
-    refreshPost(activePost.id, { status: 'approved' });
+    // Open publisher assignment choice (Requirement 6)
+    setSelectedManagerId(activePost.assigned_manager_id || managers[0]?.id || 'user-manager-01');
+    setPublisherAssignModalOpen(true);
+  };
+
+  const handleConfirmPublisherAssignment = () => {
+    if (!activePost) return;
+
+    const publisherId = publishingChoice === 'self'
+      ? (user?.id || 'user-admin-01')
+      : (selectedManagerId || activePost.assigned_manager_id || 'user-manager-01');
+
+    const publisherRole = publishingChoice === 'self' ? 'admin' : 'manager';
+    const publisherUser = mockDb.getUser(publisherId);
+
+    refreshPost(activePost.id, {
+      status: 'ready_to_publish',
+      assigned_publisher_id: publisherId,
+      publisher_role: publisherRole,
+    });
+
     mockDb.logAudit({
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: 'ADMIN_POST_APPROVED',
+      action: 'ADMIN_POST_APPROVED_AND_ASSIGNED_PUBLISHER',
       entity_type: 'post',
       entity_id: activePost.id,
-      details: { new_status: 'approved' },
+      details: {
+        new_status: 'ready_to_publish',
+        publisher_choice: publishingChoice,
+        assigned_publisher_id: publisherId,
+        assigned_publisher_name: publisherUser?.full_name,
+      },
     });
+
     showToast({
       type: 'success',
-      title: 'Deliverable Approved',
-      message: `"${activePost.title}" has received executive approval.`,
+      title: 'Deliverable Approved & Ready to Publish',
+      message: publishingChoice === 'self'
+        ? `"${activePost.title}" approved. You are designated as publisher.`
+        : `"${activePost.title}" approved. Assigned to ${publisherUser?.full_name || 'Manager'} to publish.`,
     });
+
+    setPublisherAssignModalOpen(false);
   };
 
   const handleReadyToPublish = () => {
@@ -450,26 +503,25 @@ export const ApprovalQueuePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Caption & Hashtag Preview */}
+              {/* Caption & Hashtag Preview (Requirement 2 & 5: Formatted description & dual copy actions) */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
                     <FileText className="h-3.5 w-3.5 text-primary-500" />
-                    <span>Caption Copy & Hashtags</span>
+                    <span>Formatted Description & Hashtags</span>
                   </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => copyToClipboard(activePost.caption || '', 'Caption')}
-                    leftIcon={<Copy className="h-3.5 w-3.5" />}
-                    className="text-xs h-7"
-                  >
-                    Copy Copy
-                  </Button>
+                  <CopyTextActions
+                    htmlContent={activePost.description_html}
+                    plainText={activePost.caption}
+                    size="xs"
+                  />
                 </div>
 
-                <div className="p-4 rounded-xl bg-muted/20 border border-border/60 text-sm whitespace-pre-wrap leading-relaxed font-sans">
-                  {activePost.caption || 'No caption draft provided.'}
+                <div className="p-4 rounded-xl bg-muted/20 border border-border/60 text-sm leading-relaxed font-sans">
+                  <FormattedContent
+                    html={activePost.description_html}
+                    fallbackText={activePost.caption}
+                  />
                 </div>
 
                 {activePost.hashtags && activePost.hashtags.length > 0 && (
@@ -728,6 +780,112 @@ export const ApprovalQueuePage: React.FC = () => {
               disabled={decisionReason.trim().length < 10}
             >
               {decisionModal.type === 'revision' ? 'Send Revision Request' : 'Confirm Rejection'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Publisher Assignment Modal (Requirement 6: "I will publish myself" or "Assign Manager to publish") */}
+      <Modal
+        isOpen={publisherAssignModalOpen}
+        onClose={() => setPublisherAssignModalOpen(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-emerald-600" />
+            <span>Grant Executive Approval & Assign Publisher</span>
+          </div>
+        }
+        description={`Authorizing "${activePost?.title}". Designate who will execute the social media release.`}
+        maxWidth="md"
+      >
+        <div className="space-y-4 pt-2">
+          <div className="space-y-3">
+            <label className="text-xs font-semibold text-muted-foreground uppercase block">
+              Publishing Responsibility *
+            </label>
+
+            {/* Option A: Self */}
+            <label
+              className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                publishingChoice === 'self'
+                  ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-950/30 ring-1 ring-primary-500'
+                  : 'border-border/80 hover:bg-muted/30'
+              }`}
+            >
+              <input
+                type="radio"
+                name="publishingChoice"
+                value="self"
+                checked={publishingChoice === 'self'}
+                onChange={() => setPublishingChoice('self')}
+                className="mt-0.5 text-primary-600 focus:ring-primary-500"
+              />
+              <div className="space-y-0.5">
+                <span className="text-sm font-semibold text-foreground block">
+                  I will publish myself (Administrator)
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  You will handle live distribution, copy pasting, and record the verified live URL.
+                </p>
+              </div>
+            </label>
+
+            {/* Option B: Assign Manager */}
+            <label
+              className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                publishingChoice === 'manager'
+                  ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-950/30 ring-1 ring-primary-500'
+                  : 'border-border/80 hover:bg-muted/30'
+              }`}
+            >
+              <input
+                type="radio"
+                name="publishingChoice"
+                value="manager"
+                checked={publishingChoice === 'manager'}
+                onChange={() => setPublishingChoice('manager')}
+                className="mt-0.5 text-primary-600 focus:ring-primary-500"
+              />
+              <div className="space-y-1 w-full">
+                <span className="text-sm font-semibold text-foreground block">
+                  Assign Campaign Manager to publish
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  The designated manager will see this post in their "To Publish" queue with one-click copy buttons.
+                </p>
+
+                {publishingChoice === 'manager' && (
+                  <div className="pt-2">
+                    <label className="text-[11px] font-semibold text-muted-foreground uppercase block mb-1">
+                      Select Manager:
+                    </label>
+                    <Select
+                      value={selectedManagerId}
+                      onChange={e => setSelectedManagerId(e.target.value)}
+                      className="text-xs"
+                    >
+                      {managers.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.full_name} ({m.email})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
+
+          <div className="p-3 bg-muted/30 rounded-xl border border-border/60 text-xs text-muted-foreground">
+            Status will transition to <strong className="text-foreground">Ready to Publish</strong>. The deliverable cannot be marked Published without human confirmation of the live URL.
+          </div>
+
+          <div className="pt-3 border-t border-border flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPublisherAssignModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" onClick={handleConfirmPublisherAssignment}>
+              Approve & Assign Publisher
             </Button>
           </div>
         </div>

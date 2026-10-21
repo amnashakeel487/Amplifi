@@ -45,7 +45,7 @@ export const AdminDashboard: React.FC = () => {
 
   // Metrics
   const pendingApprovals = useMemo(
-    () => posts.filter(p => p.status === 'pending_admin_approval'),
+    () => posts.filter(p => p.status === 'pending_admin_approval' || p.status === 'manager_approved'),
     [posts]
   );
 
@@ -70,11 +70,11 @@ export const AdminDashboard: React.FC = () => {
   // Pipeline Chart Data
   const pipelineData = useMemo(() => {
     const statusGroups = [
-      { name: 'Draft / Assigned', count: posts.filter(p => ['draft', 'assigned'].includes(p.status)).length, color: '#94A3B8' },
-      { name: 'In Production', count: posts.filter(p => ['in_progress'].includes(p.status)).length, color: '#6366F1' },
-      { name: 'Review Queue', count: posts.filter(p => ['submitted', 'under_review', 'revision_required'].includes(p.status)).length, color: '#F59E0B' },
+      { name: 'Draft', count: posts.filter(p => ['draft', 'assigned'].includes(p.status)).length, color: '#94A3B8' },
+      { name: 'Text Review', count: posts.filter(p => ['text_submitted', 'text_revision_required'].includes(p.status)).length, color: '#F59E0B' },
+      { name: 'Media Stage', count: posts.filter(p => ['text_approved', 'media_in_progress', 'media_submitted', 'media_revision_required', 'submitted', 'in_progress', 'under_review'].includes(p.status)).length, color: '#6366F1' },
       { name: 'Pending Admin', count: posts.filter(p => ['manager_approved', 'pending_admin_approval'].includes(p.status)).length, color: '#8B5CF6' },
-      { name: 'Approved / Ready', count: posts.filter(p => ['approved', 'ready_to_publish'].includes(p.status)).length, color: '#10B981' },
+      { name: 'Ready to Publish', count: posts.filter(p => ['approved', 'ready_to_publish'].includes(p.status)).length, color: '#10B981' },
       { name: 'Published', count: posts.filter(p => ['published', 'scheduled'].includes(p.status)).length, color: '#059669' },
     ];
     return statusGroups;

@@ -49,12 +49,13 @@ type ProjectFormData = z.infer<typeof projectSchema>;
 
 export const ProjectsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { isAdmin, isManager } = useAuth();
+  const { user, isAdmin, isManager } = useAuth();
   const { showToast } = useNotifications();
 
-  const [projects, setProjects] = useState<Project[]>(() => mockDb.getProjects());
+  // Scoped project retrieval (Requirement 7: Managers see only their projects)
+  const [projects, setProjects] = useState<Project[]>(() => mockDb.getProjectsForUser(user || undefined));
   const clients = mockDb.getClients();
-  const posts = mockDb.getPosts();
+  const posts = mockDb.getPostsForUser(user || undefined);
 
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
@@ -68,7 +69,7 @@ export const ProjectsPage: React.FC = () => {
   }>({ open: false });
 
   const refreshList = () => {
-    setProjects(mockDb.getProjects());
+    setProjects(mockDb.getProjectsForUser(user || undefined));
   };
 
   const {

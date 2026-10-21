@@ -22,6 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { PlatformCounters } from './PlatformCounters';
 
 const postCreateSchema = z.object({
@@ -59,6 +60,11 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
 
   const projects = mockDb.getProjects();
   const students = mockDb.getUsers().filter(u => u.role === 'student');
+  const isStudentUser = user?.role === 'student';
+
+  const [descriptionHtml, setDescriptionHtml] = useState('<p></p>');
+  const [plainDescription, setPlainDescription] = useState('');
+
   const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([
     'instagram',
     'linkedin',
@@ -69,6 +75,7 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
     handleSubmit,
     watch,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<PostCreateFormData>({
     resolver: zodResolver(postCreateSchema),
@@ -79,14 +86,14 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
       hashtags_raw: 'FinTech, BankingAI, ComplianceTech',
       priority: 'medium',
       deadline: '2026-11-15T18:00',
-      assigned_student_id: students[0]?.id || '',
+      assigned_student_id: isStudentUser ? user.id : (students[0]?.id || ''),
       creative_specs: '1:1 Square carousel (5 slides) + 9:16 vertical video cut.',
       google_docs_brief_url: 'https://docs.google.com/document/d/brief-new/edit',
       google_drive_assets_url: 'https://drive.google.com/drive/folders/new-assets',
     },
   });
 
-  const watchedCaption = watch('caption') || '';
+  const watchedCaption = plainDescription || watch('caption') || '';
   const watchedHashtags = (watch('hashtags_raw') || '')
     .split(',')
     .map(t => t.trim().replace(/^#/, ''))
@@ -103,31 +110,39 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
   };
 
   const onSubmit = (data: PostCreateFormData) => {
+    const assignedCreator = isStudentUser ? user.id : data.assigned_student_id;
+    const finalCaption = plainDescription || data.caption || '';
+    const finalHtml = descriptionHtml && descriptionHtml !== '<p></p>' ? descriptionHtml : `<p>${finalCaption}</p>`;
+
     const created = mockDb.createPost({
       project_id: data.project_id,
       title: data.title,
-      caption: data.caption,
+      caption: finalCaption,
+      description_html: finalHtml,
       hashtags: watchedHashtags,
       platforms: selectedPlatforms,
-      status: 'assigned',
+      status: 'text_submitted',
       priority: data.priority as PriorityLevel,
       deadline: data.deadline,
       target_publish_date: data.target_publish_date || data.deadline,
-      assigned_student_id: data.assigned_student_id,
-      assigned_manager_id: user?.id,
+      assigned_student_id: assignedCreator,
+      assigned_manager_id: isStudentUser ? undefined : user?.id,
       creative_specs: data.creative_specs,
       google_docs_brief_url: data.google_docs_brief_url,
       google_drive_assets_url: data.google_drive_assets_url,
       reference_links: (data.reference_links_raw || '').split('\n').filter(Boolean),
+      created_by: user?.id,
     });
 
     showToast({
       type: 'success',
-      title: 'Post Deliverable Created',
-      message: `"${created.title}" assigned to creator with brief & deadline.`,
+      title: 'Text Submitted for Review',
+      message: `"${created.title}" submitted to Campaign Manager with preserved rich-text formatting.`,
     });
 
     reset();
+    setDescriptionHtml('<p></p>');
+    setPlainDescription('');
     onClose();
     if (onPostCreated) onPostCreated();
   };
@@ -247,13 +262,22 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
         {/* Caption Editor & Platform Counters */}
         <div className="space-y-3 pt-2 border-t border-border/60">
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">
-              Caption Draft Copy
-            </label>
-            <Textarea
-              {...register('caption')}
-              placeholder="Write primary hook, body copy, and call-to-action..."
-              className="mt-1 min-h-[120px] text-xs font-sans leading-relaxed"
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-muted-foreground uppercase">
+                Post Description & Body Copy (Preserves ChatGPT Formatting)
+              </label>
+              <span className="text-[10px] text-primary-600 bg-primary-50 dark:bg-primary-950/50 px-1.5 py-0.5 rounded font-medium">
+                Supports Bold, Italics, Lists & Emojis
+              </span>
+            </div>
+            <RichTextEditor
+              value={descriptionHtml}
+              onChange={(html, plain) => {
+                setDescriptionHtml(html);
+                setPlainDescription(plain);
+                setValue('caption', plain);
+              }}
+              placeholder="Paste ChatGPT formatted text directly (bold, headings, bullets, line breaks, emojis)..."
             />
           </div>
 

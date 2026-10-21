@@ -40,6 +40,8 @@ const userSchema = z.object({
   title: z.string().optional(),
   phone: z.string().optional(),
   bio: z.string().optional(),
+  assigned_drive_folder_id: z.string().optional(),
+  assigned_drive_folder_url: z.string().optional(),
   must_change_password: z.boolean().default(true),
 });
 
@@ -112,6 +114,8 @@ export const UserManagementPage: React.FC = () => {
     setValue('title', u.title || '');
     setValue('phone', u.phone || '');
     setValue('bio', u.bio || '');
+    setValue('assigned_drive_folder_id', u.assigned_drive_folder_id || '');
+    setValue('assigned_drive_folder_url', u.assigned_drive_folder_url || '');
     setValue('must_change_password', !!u.must_change_password);
     setDrawerOpen(true);
   };
@@ -122,7 +126,7 @@ export const UserManagementPage: React.FC = () => {
       showToast({
         type: 'success',
         title: 'User Profile Updated',
-        message: `${data.full_name}'s permissions and profile updated.`,
+        message: `${data.full_name}'s permissions, Drive folder, and profile updated.`,
       });
     } else {
       mockDb.createUser({
@@ -133,6 +137,8 @@ export const UserManagementPage: React.FC = () => {
         title: data.title,
         phone: data.phone,
         bio: data.bio,
+        assigned_drive_folder_id: data.assigned_drive_folder_id,
+        assigned_drive_folder_url: data.assigned_drive_folder_url,
         must_change_password: data.must_change_password,
       });
       showToast({
@@ -536,6 +542,41 @@ export const UserManagementPage: React.FC = () => {
               placeholder="Background in vertical video editing and brand storytelling..."
               className="mt-1 text-xs"
             />
+          </div>
+
+          {/* Assigned Google Drive Folder (Requirement 3: Per-Creator Drive Folder) */}
+          <div className="p-3 rounded-lg border border-border/80 bg-muted/20 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
+                Assigned Google Drive Folder
+              </span>
+              <span className="text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono">
+                Admin Shared
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Admin shares this folder with the creator with least-privilege editor access. The app verifies that submitted media resides in this folder.
+            </p>
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Drive Folder ID
+              </label>
+              <Input
+                {...register('assigned_drive_folder_id')}
+                placeholder="e.g. 1AbC_dRiVe_Folder_ID"
+                className="mt-0.5 text-xs font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Drive Folder URL
+              </label>
+              <Input
+                {...register('assigned_drive_folder_url')}
+                placeholder="https://drive.google.com/drive/folders/..."
+                className="mt-0.5 text-xs font-mono"
+              />
+            </div>
           </div>
 
           <div className="pt-2">

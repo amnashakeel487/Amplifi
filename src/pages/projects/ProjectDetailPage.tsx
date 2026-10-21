@@ -93,6 +93,10 @@ export const ProjectDetailPage: React.FC = () => {
 
   const handleAddMember = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      showToast({ type: 'error', title: 'Unauthorized', message: 'Only Administrators can assign team members to projects.' });
+      return;
+    }
     if (!selectedUserId) return;
     const newMember = mockDb.addProjectMember(projectId, selectedUserId, selectedRoleInProject);
     setMembers(mockDb.getProjectMembers(projectId));
@@ -105,6 +109,10 @@ export const ProjectDetailPage: React.FC = () => {
   };
 
   const handleRemoveMember = () => {
+    if (!isAdmin) {
+      showToast({ type: 'error', title: 'Unauthorized', message: 'Only Administrators can remove team members from projects.' });
+      return;
+    }
     if (!removeMemberDialog.member) return;
     mockDb.removeProjectMember(removeMemberDialog.member.id);
     setMembers(mockDb.getProjectMembers(projectId));
@@ -288,15 +296,17 @@ export const ProjectDetailPage: React.FC = () => {
                 >
                   Create Deliverable
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setAddMemberDrawerOpen(true)}
-                  leftIcon={<UserPlus className="h-4 w-4" />}
-                  className="w-full"
-                >
-                  Assign Member
-                </Button>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setAddMemberDrawerOpen(true)}
+                    leftIcon={<UserPlus className="h-4 w-4" />}
+                    className="w-full"
+                  >
+                    Assign Member
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -366,7 +376,7 @@ export const ProjectDetailPage: React.FC = () => {
               <h2 className="text-base font-semibold text-foreground">Project Team Roster</h2>
               <p className="text-xs text-muted-foreground">Assigned campaign managers, student creators, and reviewers</p>
             </div>
-            {(isAdmin || isManager) && (
+            {isAdmin && (
               <Button
                 variant="primary"
                 size="sm"
@@ -395,7 +405,7 @@ export const ProjectDetailPage: React.FC = () => {
                   </div>
                 </div>
 
-                {(isAdmin || isManager) && (
+                {isAdmin && (
                   <Button
                     variant="ghost"
                     size="icon-sm"

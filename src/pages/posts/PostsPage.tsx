@@ -16,9 +16,9 @@ import { useAuth } from '@/context/AuthContext';
 
 export const PostsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { isAdmin, isManager } = useAuth();
-  const [posts, setPosts] = useState<Post[]>(() => mockDb.getPosts());
-  const projects = mockDb.getProjects();
+  const { user, isAdmin, isManager } = useAuth();
+  const [posts, setPosts] = useState<Post[]>(() => mockDb.getPostsForUser(user || undefined));
+  const projects = mockDb.getProjectsForUser(user || undefined);
 
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -27,7 +27,7 @@ export const PostsPage: React.FC = () => {
   const [platformFilter, setPlatformFilter] = useState('all');
 
   const refreshList = () => {
-    setPosts(mockDb.getPosts());
+    setPosts(mockDb.getPostsForUser(user || undefined));
   };
 
   const filteredPosts = useMemo(() => {

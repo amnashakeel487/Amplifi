@@ -12,17 +12,20 @@ export interface UserProfile {
   phone?: string;
   title?: string;
   bio?: string;
+  assigned_drive_folder_id?: string;
+  assigned_drive_folder_url?: string;
   created_at: string;
   updated_at?: string;
 }
 
 export type PostWorkflowStatus =
   | 'draft'
-  | 'assigned'
-  | 'in_progress'
-  | 'submitted'
-  | 'under_review'
-  | 'revision_required'
+  | 'text_submitted'
+  | 'text_revision_required'
+  | 'text_approved'
+  | 'media_in_progress'
+  | 'media_submitted'
+  | 'media_revision_required'
   | 'manager_approved'
   | 'pending_admin_approval'
   | 'approved'
@@ -31,7 +34,13 @@ export type PostWorkflowStatus =
   | 'published'
   | 'rejected'
   | 'cancelled'
-  | 'failed_publishing';
+  | 'failed_publishing'
+  // Legacy compatibility aliases
+  | 'assigned'
+  | 'in_progress'
+  | 'submitted'
+  | 'under_review'
+  | 'revision_required';
 
 export type PriorityLevel = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -78,7 +87,23 @@ export interface ProjectMember {
   user_id: string;
   user?: UserProfile;
   role_in_project: 'manager' | 'student' | 'reviewer' | 'client_observer';
+  assigned_drive_folder_id?: string;
+  assigned_drive_folder_url?: string;
   assigned_at: string;
+}
+
+export interface PostTextVersion {
+  id: string;
+  post_id: string;
+  version_number: number;
+  title: string;
+  description_html: string;
+  caption_plain: string;
+  hashtags: string[];
+  submitted_by?: string;
+  submitter?: UserProfile;
+  submission_notes?: string;
+  created_at: string;
 }
 
 export interface Post {
@@ -87,6 +112,8 @@ export interface Post {
   project?: Project;
   title: string;
   caption?: string;
+  description_html?: string;
+  description_json?: any;
   hashtags: string[];
   platforms: SocialPlatform[];
   status: PostWorkflowStatus;
@@ -97,6 +124,9 @@ export interface Post {
   assigned_student?: UserProfile;
   assigned_manager_id?: string;
   assigned_manager?: UserProfile;
+  assigned_publisher_id?: string;
+  assigned_publisher?: UserProfile;
+  publisher_role?: UserRole;
   creative_specs?: string;
   reference_links?: string[];
   google_drive_assets_folder_id?: string;
@@ -109,6 +139,7 @@ export interface Post {
   rejection_reason?: string;
   revision_instructions?: string;
   assets?: PostAsset[];
+  text_versions?: PostTextVersion[];
   created_by?: string;
   created_at: string;
   updated_at?: string;

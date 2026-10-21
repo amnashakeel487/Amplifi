@@ -36,6 +36,8 @@ import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { GoogleDocsBriefPanel } from '@/components/google-docs/GoogleDocsBriefPanel';
 import { MediaPreviewLightbox, MediaAsset } from '@/components/media/MediaPreviewLightbox';
 import { PlatformCounters } from '@/components/posts/PlatformCounters';
+import { FormattedContent } from '@/components/ui/formatted-content';
+import { CopyTextActions } from '@/components/ui/copy-text-actions';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
 
 interface InlineSuggestion {
@@ -161,24 +163,27 @@ export const ProofreadingReviewPage: React.FC = () => {
     );
   };
 
-  const handleManagerApprove = () => {
+  const isTextStage = ['text_submitted', 'submitted'].includes(post.status);
+  const isMediaStage = ['media_submitted', 'under_review'].includes(post.status);
+
+  const handleApproveText = () => {
     mockDb.updatePost(post.id, {
-      status: 'manager_approved',
+      status: 'text_approved',
       updated_at: new Date().toISOString(),
     });
     mockDb.logAudit({
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: 'MANAGER_APPROVED',
+      action: 'TEXT_APPROVED_BY_MANAGER',
       entity_type: 'post',
       entity_id: post.id,
-      details: { decision: 'Manager editorial sign-off complete' },
+      details: { decision: 'Manager approved text. Media stage unlocked for creator.' },
     });
     showToast({
       type: 'success',
-      title: 'Manager Approved',
-      message: `"${post.title}" has been signed off by management.`,
+      title: 'Text Copy Approved!',
+      message: `"${post.title}" moved to Text Approved. Creator can now create & upload media assets to Drive.`,
     });
     setDecisionConfirmOpen(false);
     navigate(`/posts/${post.id}`);
@@ -196,12 +201,12 @@ export const ProofreadingReviewPage: React.FC = () => {
       action: 'FORWARDED_TO_ADMIN',
       entity_type: 'post',
       entity_id: post.id,
-      details: { decision: 'Escalated to Executive Approval Queue' },
+      details: { decision: 'Manager proofreading passed. Forwarded to Admin Queue.' },
     });
     showToast({
       type: 'success',
-      title: 'Forwarded to Admin',
-      message: `"${post.title}" is now awaiting final sign-off in the Admin Queue.`,
+      title: 'Sent to Admin for Final Approval',
+      message: `"${post.title}" is now awaiting executive sign-off. Manager cannot grant final approval.`,
     });
     setDecisionConfirmOpen(false);
     navigate(`/posts/${post.id}`);
@@ -215,8 +220,10 @@ export const ProofreadingReviewPage: React.FC = () => {
     }
     setRevisionError('');
 
+    const targetRevStatus = isTextStage ? 'text_revision_required' : 'media_revision_required';
+
     mockDb.updatePost(post.id, {
-      status: 'revision_required',
+      status: targetRevStatus,
       revision_instructions: revisionNotes.trim(),
       updated_at: new Date().toISOString(),
     });
@@ -225,7 +232,7 @@ export const ProofreadingReviewPage: React.FC = () => {
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: 'REVISION_REQUESTED',
+      action: isTextStage ? 'TEXT_REVISION_REQUESTED' : 'MEDIA_REVISION_REQUESTED',
       entity_type: 'post',
       entity_id: post.id,
       details: { instructions: revisionNotes.trim() },
@@ -321,20 +328,25 @@ export const ProofreadingReviewPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Caption & Hashtag Panel */}
+          {/* Caption & Hashtag Panel (Requirement 2: Rich text preservation & dual copy buttons) */}
           <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/60">
               <span className="text-xs font-semibold text-foreground flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary-600" />
-                Caption Copy Under Review
+                Post Copy & Description (Rich Text Preserved)
               </span>
-              <span className="text-xs text-muted-foreground font-mono">
-                {post.caption?.length || 0} characters
-              </span>
+              <CopyTextActions
+                htmlContent={post.description_html}
+                plainText={post.caption}
+                size="xs"
+              />
             </div>
 
-            <div className="p-4 rounded-xl bg-muted/30 border border-border/60 text-sm font-sans whitespace-pre-wrap leading-relaxed select-text">
-              {post.caption}
+            <div className="p-4 rounded-xl bg-muted/30 border border-border/60 text-sm font-sans leading-relaxed select-text">
+              <FormattedContent
+                html={post.description_html}
+                fallbackText={post.caption}
+              />
             </div>
 
             {/* Platform Counters */}
@@ -518,34 +530,35 @@ export const ProofreadingReviewPage: React.FC = () => {
               leftIcon={<RotateCcw className="h-4 w-4 text-orange-500" />}
               className="text-xs border-orange-200 dark:border-orange-900/60"
             >
-              Request Revision
+              {isTextStage ? 'Request Text Revision' : 'Request Media Revision'}
             </Button>
 
-            {/* 2. Manager Sign-Off */}
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setTargetDecision('approve');
-                setDecisionConfirmOpen(true);
-              }}
-              leftIcon={<CheckCircle2 className="h-4 w-4" />}
-            >
-              Manager Sign-Off
-            </Button>
-
-            {/* 3. Forward to Admin */}
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setTargetDecision('forward');
-                setDecisionConfirmOpen(true);
-              }}
-              rightIcon={<ArrowRight className="h-4 w-4" />}
-            >
-              Forward to Admin
-            </Button>
+            {/* 2. Stage-Specific Advance Action */}
+            {isTextStage ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setTargetDecision('approve_text' as any);
+                  setDecisionConfirmOpen(true);
+                }}
+                leftIcon={<CheckCircle2 className="h-4 w-4" />}
+              >
+                Approve Text Copy
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setTargetDecision('forward_admin' as any);
+                  setDecisionConfirmOpen(true);
+                }}
+                rightIcon={<ArrowRight className="h-4 w-4" />}
+              >
+                Send to Admin for Final Approval
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -554,13 +567,13 @@ export const ProofreadingReviewPage: React.FC = () => {
       <Drawer
         isOpen={revisionDrawerOpen}
         onClose={() => setRevisionDrawerOpen(false)}
-        title="Dispatch Revision Instructions"
-        description="Provide actionable proofreading notes. The student creator will be notified immediately."
+        title={isTextStage ? "Request Copy Changes" : "Request Media Revisions"}
+        description="Provide actionable proofreading notes. The creator will be notified immediately."
         width="md"
       >
         <form onSubmit={handleExecuteRevision} className="space-y-4">
           <div className="p-3 bg-orange-50 dark:bg-orange-950/30 rounded-xl border border-orange-200 dark:border-orange-900 text-xs text-orange-800 dark:text-orange-300">
-            A clear explanation of required edits is required to transition this deliverable back to In Progress.
+            A clear explanation of required edits is required to return this deliverable to the creator.
           </div>
 
           <div>
@@ -573,7 +586,7 @@ export const ProofreadingReviewPage: React.FC = () => {
                 setRevisionNotes(e.target.value);
                 if (revisionError) setRevisionError('');
               }}
-              placeholder="e.g. 1. Color grade slide 2 to match brand guidelines. 2. Fix typography alignment on final CTA slide..."
+              placeholder={isTextStage ? "e.g. 1. Add call to action. 2. Tone needs to be more authoritative on slide 1..." : "e.g. 1. Color grade slide 2. 2. Fix subtitle timing..."}
               className="min-h-[140px] text-xs font-sans leading-relaxed"
             />
             {revisionError && <p className="text-xs text-red-500 font-medium mt-1">{revisionError}</p>}
@@ -594,14 +607,14 @@ export const ProofreadingReviewPage: React.FC = () => {
       <ConfirmationDialog
         isOpen={decisionConfirmOpen}
         onClose={() => setDecisionConfirmOpen(false)}
-        onConfirm={targetDecision === 'approve' ? handleManagerApprove : handleForwardToAdmin}
-        title={targetDecision === 'approve' ? 'Editorial Sign-Off' : 'Escalate to Admin Approval'}
+        onConfirm={targetDecision === ('approve_text' as any) ? handleApproveText : handleForwardToAdmin}
+        title={targetDecision === ('approve_text' as any) ? 'Approve Copy Deliverable' : 'Forward to Admin Approval'}
         description={
-          targetDecision === 'approve'
-            ? `Mark "${post.title}" as Manager Approved? This confirms visual assets, copy, and legal disclaimers have been verified.`
-            : `Forward "${post.title}" directly to the Executive Admin Approval Queue?`
+          targetDecision === ('approve_text' as any)
+            ? `Approve text for "${post.title}"? This will unlock the Media Stage and notify the creator to upload assets into their assigned Drive folder.`
+            : `Forward "${post.title}" to the Executive Admin for final approval? (Note: Managers cannot grant final authorization)`
         }
-        confirmLabel={targetDecision === 'approve' ? 'Sign-Off Post' : 'Forward to Admin'}
+        confirmLabel={targetDecision === ('approve_text' as any) ? 'Approve Text' : 'Send to Admin'}
       />
 
       {/* Media Lightbox */}

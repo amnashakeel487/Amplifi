@@ -24,13 +24,17 @@ import {
 } from '@/lib/google-drive';
 import { mockDb } from '@/lib/mock-db';
 import { useNotifications } from '@/context/NotificationContext';
+import { useAuth } from '@/context/AuthContext';
 import { IntegrationStatusChip } from '@/components/ui/integration-status-chip';
 import { Button } from '@/components/ui/button';
+import { Modal } from '@/components/ui/modal';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { StatCard } from '@/components/ui/stat-card';
 import { formatBytes, formatRelativeTime } from '@/lib/utils';
 
 export const DrivePage: React.FC = () => {
+  const { user, isAdmin } = useAuth();
   const { showToast } = useNotifications();
   const settings = mockDb.getSettings();
 
@@ -43,6 +47,14 @@ export const DrivePage: React.FC = () => {
     accountEmail: settings.google_account_email || '',
     status: 'connected',
   });
+
+  // Creator Drive Folder Assignment State (Requirement 3)
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<any>(null);
+  const [folderIdInput, setFolderIdInput] = useState('');
+  const [folderUrlInput, setFolderUrlInput] = useState('');
+
+  const creators = mockDb.getUsers().filter(u => u.role === 'student');
 
   // Tree state: which client branches are expanded
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({
@@ -75,6 +87,30 @@ export const DrivePage: React.FC = () => {
       title: 'Permissions Audit Complete',
       message: 'All Google Drive client folder scopes and tokens verified.',
     });
+  };
+
+  const handleOpenAssignModal = (creator: any) => {
+    setSelectedStudent(creator);
+    setFolderIdInput(creator.assigned_drive_folder_id || '');
+    setFolderUrlInput(creator.assigned_drive_folder_url || '');
+    setAssignModalOpen(true);
+  };
+
+  const handleSaveCreatorFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
+    await googleDriveService.assignCreatorFolder(
+      selectedStudent.id,
+      folderIdInput.trim(),
+      folderUrlInput.trim()
+    );
+    showToast({
+      type: 'success',
+      title: 'Creator Drive Folder Assigned',
+      message: `Updated Google Drive folder for ${selectedStudent.full_name}. Permissions verified.`,
+    });
+    setAssignModalOpen(false);
+    await loadData();
   };
 
   const toggleNode = (nodeKey: string) => {
@@ -159,6 +195,9 @@ export const DrivePage: React.FC = () => {
       <Tabs defaultValue="browser">
         <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="browser">Interactive Folder Tree</TabsTrigger>
+          <TabsTrigger value="creators">
+            Creator Assigned Folders ({creators.length})
+          </TabsTrigger>
           <TabsTrigger value="permissions">
             Folder Permissions Scanner ({folders.length})
           </TabsTrigger>
@@ -387,7 +426,140 @@ export const DrivePage: React.FC = () => {
             </div>
           </div>
         </TabsContent>
+
+        {/* TAB 4: CREATOR ASSIGNED FOLDERS (Requirement 3: Per-Creator Drive Folder Sharing) */}
+        <TabsContent value="creators" className="mt-4">
+          <div className="rounded-xl border border-border/80 bg-card overflow-hidden shadow-soft space-y-4 p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <HardDrive className="h-4 w-4 text-primary-600" />
+                  Creator Google Drive Folder Provisioning
+                </h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  The Admin shares a dedicated folder from the Admin's Drive with each Creator (least-privilege). The app validates submitted assets belong to this folder.
+                </p>
+              </div>
+              <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded border border-emerald-200">
+                Least-Privilege Enforcement Active
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {creators.map(c => (
+                <div
+                  key={c.id}
+                  className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-foreground">{c.full_name}</h4>
+                      <span className="text-xs text-muted-foreground">{c.email}</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-mono font-bold bg-primary-50 text-primary-700 dark:bg-primary-950 px-2 py-0.5 rounded border border-primary-200">
+                      Creator
+                    </span>
+                  </div>
+
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Folder ID:</span>
+                      <span className="font-mono font-semibold text-foreground truncate max-w-[180px]">
+                        {c.assigned_drive_folder_id || 'Not Assigned'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>Permissions:</span>
+                      <span className="text-emerald-600 font-medium">Editor (Assigned Folder Only)</span>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
+                    {c.assigned_drive_folder_url ? (
+                      <a
+                        href={c.assigned_drive_folder_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline font-medium"
+                      >
+                        Open in Drive <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ) : (
+                      <span className="text-xs text-amber-600 font-medium">Pending Assignment</span>
+                    )}
+
+                    {isAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenAssignModal(c)}
+                        className="text-xs h-7"
+                      >
+                        Assign / Change Folder
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
+
+      {/* Admin Creator Folder Assignment Modal (Requirement 3) */}
+      <Modal
+        isOpen={assignModalOpen}
+        onClose={() => setAssignModalOpen(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <HardDrive className="h-5 w-5 text-primary-600" />
+            <span>Assign Creator Google Drive Folder</span>
+          </div>
+        }
+        description={`Set or update the dedicated Google Drive folder for ${selectedStudent?.full_name}.`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleSaveCreatorFolder} className="space-y-4 pt-2">
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-900 text-xs text-blue-800 dark:text-blue-300">
+            Least privilege rule: Shares only this specific folder with {selectedStudent?.email}. The Creator will not have access to any other campaign or client folders.
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+              Google Drive Folder ID *
+            </label>
+            <Input
+              value={folderIdInput}
+              onChange={e => setFolderIdInput(e.target.value)}
+              placeholder="e.g. 1AbC_dRiVe_AlexRivera_Folder2026"
+              className="font-mono text-xs"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+              Google Drive Folder URL *
+            </label>
+            <Input
+              value={folderUrlInput}
+              onChange={e => setFolderUrlInput(e.target.value)}
+              placeholder="https://drive.google.com/drive/folders/1AbC_..."
+              className="font-mono text-xs"
+              required
+            />
+          </div>
+
+          <div className="pt-3 border-t border-border flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setAssignModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit">
+              Save & Verify Least-Privilege Access
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

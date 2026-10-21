@@ -67,12 +67,38 @@ export const PublishingChecklistModal: React.FC<PublishingChecklistModalProps> =
   });
 
   const [copiedCaption, setCopiedCaption] = useState(false);
+  const [copiedFormatted, setCopiedFormatted] = useState(false);
   const [copiedTags, setCopiedTags] = useState(false);
   const [copiedMedia, setCopiedMedia] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleChecklist = (key: keyof typeof checklist) => {
     setChecklist(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const copyFormattedToClipboard = async () => {
+    const plain = post.caption || '';
+    const html = post.description_html || `<p>${plain.replace(/\n/g, '<br/>')}</p>`;
+    try {
+      if (typeof window !== 'undefined' && 'ClipboardItem' in window && navigator.clipboard?.write) {
+        const textBlob = new Blob([plain], { type: 'text/plain' });
+        const htmlBlob = new Blob([html], { type: 'text/html' });
+        await navigator.clipboard.write([new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob })]);
+      } else {
+        await navigator.clipboard.writeText(plain);
+      }
+      setCopiedFormatted(true);
+      showToast({
+        type: 'success',
+        title: 'Formatted Text Copied',
+        message: 'Rich formatting (bold, italics, lists, emojis) copied to clipboard.',
+      });
+      setTimeout(() => setCopiedFormatted(false), 2000);
+    } catch {
+      await navigator.clipboard.writeText(plain);
+      setCopiedFormatted(true);
+      setTimeout(() => setCopiedFormatted(false), 2000);
+    }
   };
 
   const copyToClipboard = async (text: string, label: string, setFn: (v: boolean) => void) => {
@@ -121,6 +147,8 @@ export const PublishingChecklistModal: React.FC<PublishingChecklistModalProps> =
         status: 'published',
         published_url: publishedUrl.trim(),
         published_at: new Date(publishDate).toISOString(),
+        assigned_publisher_id: post.assigned_publisher_id || user?.id,
+        publisher_role: post.publisher_role || user?.role,
       });
 
       mockDb.logAudit({
@@ -203,17 +231,27 @@ export const PublishingChecklistModal: React.FC<PublishingChecklistModalProps> =
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
                 Quick Content Copy Desk
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={copyFormattedToClipboard}
+                  leftIcon={copiedFormatted ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                  className="justify-center text-xs h-9 font-medium"
+                >
+                  {copiedFormatted ? 'Rich Copied!' : 'Copy Formatted'}
+                </Button>
+
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() =>
-                    copyToClipboard(post.caption || '', 'Caption', setCopiedCaption)
+                    copyToClipboard(post.caption || '', 'Plain Caption', setCopiedCaption)
                   }
                   leftIcon={copiedCaption ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
                   className="justify-center text-xs h-9"
                 >
-                  {copiedCaption ? 'Caption Copied!' : 'Copy Caption'}
+                  {copiedCaption ? 'Plain Copied!' : 'Copy Plain'}
                 </Button>
 
                 <Button
@@ -245,7 +283,7 @@ export const PublishingChecklistModal: React.FC<PublishingChecklistModalProps> =
                   leftIcon={copiedMedia ? <Check className="h-4 w-4 text-emerald-500" /> : <HardDrive className="h-4 w-4" />}
                   className="justify-center text-xs h-9"
                 >
-                  {copiedMedia ? 'Drive Link Copied!' : 'Copy Drive CDN'}
+                  {copiedMedia ? 'Drive Copied!' : 'Drive Assets'}
                 </Button>
               </div>
             </div>

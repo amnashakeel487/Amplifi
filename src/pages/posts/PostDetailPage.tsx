@@ -24,6 +24,7 @@ import {
   FileCheck,
   Sparkles,
   Share2,
+  Lock,
 } from 'lucide-react';
 import { mockDb } from '@/lib/mock-db';
 import { Post, SocialPlatform, PostWorkflowStatus } from '@/lib/types';
@@ -36,6 +37,8 @@ import { DeadlineChip } from '@/components/ui/deadline-chip';
 import { WorkflowStepper } from '@/components/ui/stepper';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { Drawer } from '@/components/ui/drawer';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { PlatformCounters } from '@/components/posts/PlatformCounters';
@@ -43,6 +46,9 @@ import { MediaPreviewLightbox, MediaAsset } from '@/components/media/MediaPrevie
 import { StudentSubmissionModal } from '@/components/submissions/StudentSubmissionModal';
 import { GoogleDocsBriefPanel } from '@/components/google-docs/GoogleDocsBriefPanel';
 import { PublishingChecklistModal } from '@/components/publishing/PublishingChecklistModal';
+import { FormattedContent } from '@/components/ui/formatted-content';
+import { CopyTextActions } from '@/components/ui/copy-text-actions';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { cn, formatBytes, formatRelativeTime } from '@/lib/utils';
 
 export const PostDetailPage: React.FC = () => {
@@ -94,6 +100,47 @@ export const PostDetailPage: React.FC = () => {
     requiresNote?: boolean;
   }>({ open: false });
   const [transitionNote, setTransitionNote] = useState('');
+
+  // Rich Text Copy Revision Drawer (Requirement 2: Creator can edit and resubmit text)
+  const [editTextDrawerOpen, setEditTextDrawerOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState(post?.title || '');
+  const [editDescriptionHtml, setEditDescriptionHtml] = useState(post?.description_html || `<p>${post?.caption || ''}</p>`);
+  const [editCaptionPlain, setEditCaptionPlain] = useState(post?.caption || '');
+  const [editHashtagsRaw, setEditHashtagsRaw] = useState((post?.hashtags || []).join(', '));
+
+  const handleSaveTextRevision = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!post) return;
+    const tagArray = editHashtagsRaw.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean);
+
+    mockDb.addTextVersion(post.id, {
+      title: editTitle,
+      description_html: editDescriptionHtml,
+      caption_plain: editCaptionPlain,
+      hashtags: tagArray,
+      submitted_by: user?.id,
+      submission_notes: 'Creator revised copy with rich-text formatting.',
+    });
+
+    mockDb.logAudit({
+      user_id: user?.id,
+      user_email: user?.email,
+      user_role: user?.role,
+      action: 'POST_TEXT_REVISED',
+      entity_type: 'post',
+      entity_id: post.id,
+      details: { title: editTitle, hashtags: tagArray },
+    });
+
+    showToast({
+      type: 'success',
+      title: 'Text Copy Updated & Resubmitted',
+      message: `"${editTitle}" submitted to Campaign Manager for review.`,
+    });
+
+    setEditTextDrawerOpen(false);
+    window.location.reload();
+  };
 
   if (!post) {
     return (
@@ -258,7 +305,7 @@ export const PostDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Media Preview Box (Lightbox Trigger & Video Player) */}
+          {/* Media Preview Box (Requirement 3: Media stage unlocks ONLY after text approval) */}
           <div className="rounded-xl border border-border/80 bg-card p-6 shadow-soft space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-border/60">
               <div className="flex items-center gap-2">
@@ -270,76 +317,95 @@ export const PostDetailPage: React.FC = () => {
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {mediaAssets.map(asset => (
-                <div
-                  key={asset.id}
-                  onClick={() => {
-                    setActiveMediaAsset(asset);
-                    setLightboxOpen(true);
-                  }}
-                  className="rounded-xl border border-border/80 bg-muted/20 p-3 hover:border-primary-500/50 cursor-pointer transition-all space-y-2 group relative overflow-hidden"
-                >
-                  <div className="relative aspect-video sm:aspect-square rounded-lg overflow-hidden bg-black/10 flex items-center justify-center">
-                    <img
-                      src={asset.url}
-                      alt={asset.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
-                      <Maximize2 className="h-6 w-6" />
-                    </div>
-                    <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-white font-mono text-[10px] font-semibold">
-                      {asset.aspectRatio}
-                    </span>
-                  </div>
-
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-semibold text-foreground truncate block">
-                      {asset.title}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground block font-mono">
-                      {formatBytes(asset.sizeBytes || 0)}
-                    </span>
-                  </div>
+            {!['text_approved', 'media_in_progress', 'media_submitted', 'media_revision_required', 'manager_approved', 'pending_admin_approval', 'approved', 'ready_to_publish', 'published'].includes(post.status) ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/30 p-5 space-y-2">
+                <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 font-bold text-sm">
+                  <Lock className="h-4 w-4 text-amber-600" />
+                  <span>Media Stage Locked: Text Approval Required</span>
                 </div>
-              ))}
-            </div>
+                <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                  Under the editorial workflow, creators can only upload videos and images into their assigned Google Drive folder after the Campaign Manager reviews and approves the Title, Description, and Hashtags.
+                </p>
+                <div className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+                  Current text status: <strong className="font-mono uppercase">{post.status.replace(/_/g, ' ')}</strong>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {mediaAssets.map(asset => (
+                  <div
+                    key={asset.id}
+                    onClick={() => {
+                      setActiveMediaAsset(asset);
+                      setLightboxOpen(true);
+                    }}
+                    className="rounded-xl border border-border/80 bg-muted/20 p-3 hover:border-primary-500/50 cursor-pointer transition-all space-y-2 group relative overflow-hidden"
+                  >
+                    <div className="relative aspect-video sm:aspect-square rounded-lg overflow-hidden bg-black/10 flex items-center justify-center">
+                      <img
+                        src={asset.url}
+                        alt={asset.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                        <Maximize2 className="h-6 w-6" />
+                      </div>
+                      <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 text-white font-mono text-[10px] font-semibold">
+                        {asset.aspectRatio}
+                      </span>
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-xs font-semibold text-foreground truncate block">
+                        {asset.title}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground block font-mono">
+                        {formatBytes(asset.sizeBytes || 0)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Caption & Hashtags with Real-Time Platform Counters */}
+          {/* Caption & Hashtags (Requirement 2: Preserves rich text & dual copy buttons) */}
           <div className="rounded-xl border border-border/80 bg-card p-6 shadow-soft space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/60">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary-600" />
-                <h3 className="text-sm font-semibold text-foreground">Caption & Hashtag Strategy</h3>
+                <h3 className="text-sm font-semibold text-foreground">Post Description & Strategy</h3>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
+                <CopyTextActions
+                  htmlContent={post.description_html}
+                  plainText={post.caption}
                   size="sm"
-                  onClick={() => copyToClipboard(post.caption || '', 'Caption Copy')}
-                  leftIcon={<Copy className="h-3.5 w-3.5" />}
-                  className="text-xs h-7"
-                >
-                  Copy Copy
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    copyToClipboard((post.hashtags || []).map(t => `#${t}`).join(' '), 'Hashtags')
-                  }
-                  leftIcon={<Copy className="h-3.5 w-3.5" />}
-                  className="text-xs h-7"
-                >
-                  Copy Tags
-                </Button>
+                />
+                {['draft', 'text_submitted', 'text_revision_required'].includes(post.status) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditTitle(post.title);
+                      setEditDescriptionHtml(post.description_html || `<p>${post.caption || ''}</p>`);
+                      setEditCaptionPlain(post.caption || '');
+                      setEditHashtagsRaw((post.hashtags || []).join(', '));
+                      setEditTextDrawerOpen(true);
+                    }}
+                    className="text-xs h-7"
+                  >
+                    Edit / Revise Copy
+                  </Button>
+                )}
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-muted/30 border border-border/60 text-sm whitespace-pre-wrap leading-relaxed font-sans">
-              {post.caption || 'No caption draft entered.'}
+            <div className="p-4 rounded-xl bg-muted/20 border border-border/60 text-sm leading-relaxed font-sans select-text">
+              <FormattedContent
+                html={post.description_html}
+                fallbackText={post.caption}
+              />
             </div>
 
             {/* Hashtag pills */}
@@ -747,6 +813,68 @@ export const PostDetailPage: React.FC = () => {
           onPublished={() => window.location.reload()}
         />
       )}
+
+      {/* Edit / Revise Copy Drawer (Requirement 2: Rich text preservation & version history) */}
+      <Drawer
+        isOpen={editTextDrawerOpen}
+        onClose={() => setEditTextDrawerOpen(false)}
+        title="Revise & Submit Post Copy"
+        description="Write or paste ChatGPT formatted content. Bold, italics, bullet lists and emojis will be preserved."
+        width="lg"
+      >
+        <form onSubmit={handleSaveTextRevision} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+              Post Title *
+            </label>
+            <Input
+              value={editTitle}
+              onChange={e => setEditTitle(e.target.value)}
+              placeholder="e.g. Autonomous Risk Modeling in Global Banking"
+              required
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-muted-foreground uppercase">
+                Post Description (Rich Text Editor) *
+              </label>
+              <span className="text-[10px] text-primary-600 bg-primary-50 dark:bg-primary-950/40 px-1.5 py-0.5 rounded font-mono">
+                HTML / Markdown Sanitized
+              </span>
+            </div>
+            <RichTextEditor
+              value={editDescriptionHtml}
+              onChange={(html, plain) => {
+                setEditDescriptionHtml(html);
+                setEditCaptionPlain(plain);
+              }}
+              placeholder="Paste formatted ChatGPT text here (bold, bullet lists, emojis)..."
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+              Hashtags (Comma Separated)
+            </label>
+            <Input
+              value={editHashtagsRaw}
+              onChange={e => setEditHashtagsRaw(e.target.value)}
+              placeholder="FinTech, RiskManagement, CleanTech"
+            />
+          </div>
+
+          <div className="pt-4 border-t border-border flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setEditTextDrawerOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit">
+              Submit Text Version for Manager Review
+            </Button>
+          </div>
+        </form>
+      </Drawer>
     </div>
   );
 };
