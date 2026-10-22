@@ -10,12 +10,12 @@ import {
   Table as TableIcon,
   Search,
   Calendar,
-  Clock,
-  HardDrive,
   Users,
   Eye,
   CheckCircle2,
   Trash2,
+  UserCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { mockDb } from '@/lib/mock-db';
 import { Project, PriorityLevel } from '@/lib/types';
@@ -32,37 +32,40 @@ import { CircularProgress } from '@/components/ui/progress';
 import { DataTable, ColumnDef } from '@/components/ui/data-table';
 import { StatCard } from '@/components/ui/stat-card';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
+import { EmptyState } from '@/components/ui/empty-state';
 
+// Requirement 1: Form keeps title, description, status, priority, deadline, assigned Manager, assigned Students.
+// REMOVED single Google Drive Asset Binding.
 const projectSchema = z.object({
-  client_id: z.string().min(1, 'Client is required'),
-  name: z.string().min(3, 'Project name must be at least 3 characters'),
+  name: z.string().min(2, 'Project title must be at least 2 characters'),
   description: z.string().optional(),
   status: z.enum(['planning', 'active', 'on_hold', 'completed', 'archived']),
   priority: z.enum(['low', 'medium', 'high', 'urgent']),
-  start_date: z.string().optional(),
   deadline: z.string().min(1, 'Target deadline required'),
-  google_drive_folder_id: z.string().min(2, 'Drive folder identifier required'),
-  google_drive_folder_url: z.string().url('Valid Drive URL required').optional().or(z.literal('')),
+  assigned_manager_id: z.string().min(1, 'Please select an assigned Manager'),
 });
 
 type ProjectFormData = z.infer<typeof projectSchema>;
 
 export const ProjectsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, isAdmin, isManager } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { showToast } = useNotifications();
 
-  // Scoped project retrieval (Requirement 7: Managers see only their projects)
+  // Scoped project retrieval (Requirement 7: Managers see only their projects, students see only their assigned projects)
   const [projects, setProjects] = useState<Project[]>(() => mockDb.getProjectsForUser(user || undefined));
-  const clients = mockDb.getClients();
   const posts = mockDb.getPostsForUser(user || undefined);
+  const allUsers = mockDb.getUsers();
+
+  const activeManagers = useMemo(() => allUsers.filter(u => u.role === 'manager'), [allUsers]);
+  const activeStudents = useMemo(() => allUsers.filter(u => u.role === 'student'), [allUsers]);
 
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [search, setSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
     open: boolean;
     project?: Project;
@@ -80,38 +83,68 @@ export const ProjectsPage: React.FC = () => {
   } = useForm<ProjectFormData>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
-      client_id: clients[0]?.id || '',
       name: '',
       description: '',
       status: 'active',
       priority: 'medium',
-      deadline: '2026-11-30',
-      google_drive_folder_id: 'drive-folder-' + Date.now().toString().slice(-6),
-      google_drive_folder_url: 'https://drive.google.com/drive/folders/new-campaign',
+      deadline: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      assigned_manager_id: activeManagers[0]?.id || '',
     },
   });
 
+  const toggleStudentSelection = (studentId: string) => {
+    setSelectedStudentIds(prev =>
+      prev.includes(studentId) ? prev.filter(id => id !== studentId) : [...prev, studentId]
+    );
+  };
+
   const onSubmit = (data: ProjectFormData) => {
+    if (!isAdmin) {
+      showToast({ type: 'error', title: 'Unauthorized', message: 'Only Administrators can create campaign projects.' });
+      return;
+    }
+
     const newProj = mockDb.createProject({
-      client_id: data.client_id,
       name: data.name,
-      description: data.description,
+      description: data.description || '',
       status: data.status,
       priority: data.priority as PriorityLevel,
       deadline: data.deadline,
-      google_drive_folder_id: data.google_drive_folder_id,
-      google_drive_folder_url: data.google_drive_folder_url,
-      google_drive_folder_status: 'connected',
+      assigned_manager_id: data.assigned_manager_id,
+      created_by: user?.id,
+    });
+
+    // Add manager as project member
+    mockDb.addProjectMember(newProj.id, data.assigned_manager_id, 'manager');
+
+    // Add assigned students as project members
+    selectedStudentIds.forEach(studentId => {
+      mockDb.addProjectMember(newProj.id, studentId, 'student');
+    });
+
+    mockDb.logAudit({
+      user_id: user?.id,
+      user_email: user?.email,
+      user_role: user?.role,
+      action: 'ADMIN_PROJECT_CREATED',
+      entity_type: 'project',
+      entity_id: newProj.id,
+      details: {
+        title: data.name,
+        manager_id: data.assigned_manager_id,
+        students_count: selectedStudentIds.length,
+      },
     });
 
     showToast({
       type: 'success',
       title: 'Project Initiated',
-      message: `${data.name} created and linked to Drive folder.`,
+      message: `"${data.name}" created with assigned Manager and ${selectedStudentIds.length} student(s). Configure Drive folders next.`,
     });
 
     setDrawerOpen(false);
     reset();
+    setSelectedStudentIds([]);
     refreshList();
     navigate(`/projects/${newProj.id}`);
   };
@@ -121,51 +154,56 @@ export const ProjectsPage: React.FC = () => {
     mockDb.deleteProject(deleteConfirmDialog.project.id);
     showToast({
       type: 'info',
-      title: 'Project Removed',
-      message: `${deleteConfirmDialog.project.name} has been archived.`,
+      title: 'Project Archived',
+      message: `"${deleteConfirmDialog.project.name}" has been removed.`,
     });
     setDeleteConfirmDialog({ open: false });
     refreshList();
   };
 
+  // Filtered
   const filteredProjects = useMemo(() => {
     return projects.filter(p => {
       const matchSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.description || '').toLowerCase().includes(search.toLowerCase()) ||
-        (p.client?.name || '').toLowerCase().includes(search.toLowerCase());
-      const matchClient = clientFilter === 'all' || p.client_id === clientFilter;
+        (p.description && p.description.toLowerCase().includes(search.toLowerCase()));
       const matchStatus = statusFilter === 'all' || p.status === statusFilter;
-      return matchSearch && matchClient && matchStatus;
+      return matchSearch && matchStatus;
     });
-  }, [projects, search, clientFilter, statusFilter]);
+  }, [projects, search, statusFilter]);
 
+  // Table Columns
   const columns: ColumnDef<Project>[] = [
     {
       id: 'name',
-      header: 'Project Campaign',
+      header: 'Campaign Project',
       cell: row => (
         <div className="space-y-0.5">
-          <span className="font-semibold text-foreground block">{row.name}</span>
-          <span className="text-xs text-muted-foreground">{row.client?.name}</span>
+          <span className="font-semibold text-foreground hover:text-primary-600 transition-colors cursor-pointer" onClick={() => navigate(`/projects/${row.id}`)}>
+            {row.name}
+          </span>
+          <p className="text-xs text-muted-foreground line-clamp-1 max-w-sm">
+            {row.description || 'No specific instructions from Admin.'}
+          </p>
         </div>
       ),
       sortable: true,
     },
     {
+      id: 'manager',
+      header: 'Assigned Manager',
+      cell: row => (
+        <span className="text-xs font-medium text-foreground">
+          {row.assigned_manager?.full_name || 'Unassigned'}
+        </span>
+      ),
+    },
+    {
       id: 'status',
       header: 'Status',
       cell: row => (
-        <span
-          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${
-            row.status === 'active'
-              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300'
-              : row.status === 'planning'
-              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:text-indigo-300'
-              : 'bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-900 dark:text-slate-300'
-          }`}
-        >
-          {row.status}
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium capitalize bg-muted text-foreground">
+          {row.status.replace(/_/g, ' ')}
         </span>
       ),
       sortable: true,
@@ -191,7 +229,7 @@ export const ProjectsPage: React.FC = () => {
         const pct = projPosts.length > 0 ? Math.round((completed / projPosts.length) * 100) : 0;
         return (
           <div className="flex items-center gap-2">
-            <CircularProgress value={pct} size={32} strokeWidth={4} />
+            <CircularProgress value={pct} size={30} strokeWidth={4} />
             <span className="text-xs text-muted-foreground font-medium">{completed}/{projPosts.length} posts</span>
           </div>
         );
@@ -234,22 +272,31 @@ export const ProjectsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Client Campaign Projects
+            Campaign Projects
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Track multi-platform campaign deliverables, deadlines, and Google Drive assets.
+            Production projects scoped with assigned Managers, Creators, and dedicated Drive storage folders.
           </p>
         </div>
-        {(isAdmin || isManager) && (
+        {/* Only Admin creates projects (Requirement 1) */}
+        {isAdmin && (
           <Button
             onClick={() => {
-              reset();
+              reset({
+                name: '',
+                description: '',
+                status: 'active',
+                priority: 'medium',
+                deadline: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+                assigned_manager_id: activeManagers[0]?.id || '',
+              });
+              setSelectedStudentIds([]);
               setDrawerOpen(true);
             }}
             variant="primary"
             leftIcon={<Plus className="h-4 w-4" />}
           >
-            Create New Project
+            Initiate Project
           </Button>
         )}
       </div>
@@ -259,13 +306,13 @@ export const ProjectsPage: React.FC = () => {
         <StatCard
           title="Active Projects"
           value={projects.filter(p => p.status === 'active').length}
-          subtitle="Currently in production"
+          subtitle="Currently running"
           icon={<FolderKanban className="h-5 w-5" />}
         />
         <StatCard
-          title="Total Deliverables"
+          title="Deliverables"
           value={posts.length}
-          subtitle="Across all client workspaces"
+          subtitle="Across assigned scopes"
           icon={<Calendar className="h-5 w-5 text-indigo-500" />}
         />
         <StatCard
@@ -276,28 +323,18 @@ export const ProjectsPage: React.FC = () => {
         />
       </div>
 
-      {/* Toolbar: Search, Filters, Grid/Table Toggle */}
+      {/* Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-card p-3 rounded-xl border border-border/80 shadow-soft">
         <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
-          <div className="w-full sm:w-60">
+          <div className="w-full sm:w-72">
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search campaigns..."
+              placeholder="Search projects or briefs..."
               leftIcon={<Search className="h-4 w-4" />}
               className="h-9 text-xs"
             />
           </div>
-          <Select
-            value={clientFilter}
-            onChange={e => setClientFilter(e.target.value)}
-            className="w-44 h-9 text-xs"
-          >
-            <option value="all">All Clients</option>
-            {clients.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </Select>
           <Select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
@@ -306,39 +343,57 @@ export const ProjectsPage: React.FC = () => {
             <option value="all">All Statuses</option>
             <option value="active">Active</option>
             <option value="planning">Planning</option>
+            <option value="on_hold">On Hold</option>
             <option value="completed">Completed</option>
           </Select>
         </div>
 
-        {/* View Toggle */}
-        <div className="flex items-center gap-1 bg-muted p-1 rounded-lg self-end sm:self-auto">
-          <button
+        <div className="flex items-center gap-1 self-end sm:self-auto border border-border/60 rounded-lg p-0.5 bg-muted/40">
+          <Button
+            variant={viewMode === 'grid' ? 'secondary' : 'ghost'}
+            size="icon-sm"
             onClick={() => setViewMode('grid')}
-            className={`p-1.5 rounded-md text-xs font-medium transition-colors ${
-              viewMode === 'grid'
-                ? 'bg-card text-foreground shadow-soft-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
             title="Grid View"
           >
-            <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
+            <LayoutGrid className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant={viewMode === 'table' ? 'secondary' : 'ghost'}
+            size="icon-sm"
             onClick={() => setViewMode('table')}
-            className={`p-1.5 rounded-md text-xs font-medium transition-colors ${
-              viewMode === 'table'
-                ? 'bg-card text-foreground shadow-soft-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
             title="Table View"
           >
-            <TableIcon className="h-4 w-4" />
-          </button>
+            <TableIcon className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
-      {/* Grid or Table Display */}
-      {viewMode === 'grid' ? (
+      {/* Grid or Table */}
+      {filteredProjects.length === 0 ? (
+        <EmptyState
+          icon={<FolderKanban className="h-10 w-10 text-muted-foreground" />}
+          title="No Campaign Projects Found"
+          description={
+            isAdmin
+              ? 'No projects exist yet. Initiate your first campaign project to assign a Manager and configure student Drive folders.'
+              : 'You have not been assigned to any active campaign projects yet.'
+          }
+          action={
+            isAdmin ? (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  reset();
+                  setDrawerOpen(true);
+                }}
+                leftIcon={<Plus className="h-4 w-4" />}
+              >
+                Initiate First Project
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredProjects.map(p => {
             const projPosts = posts.filter(post => post.project_id === p.id);
@@ -353,7 +408,7 @@ export const ProjectsPage: React.FC = () => {
               >
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground uppercase font-mono">
-                    {p.client?.code || 'BRAND'}
+                    {p.status}
                   </span>
                   <PriorityBadge priority={p.priority} />
                 </div>
@@ -363,14 +418,14 @@ export const ProjectsPage: React.FC = () => {
                     {p.name}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">
-                    {p.description || 'Campaign deliverables and media assets.'}
+                    {p.description || 'No specific instructions from Admin.'}
                   </p>
                 </div>
 
                 {/* Progress Ring & Deadline */}
                 <div className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/50">
                   <div className="flex items-center gap-3">
-                    <CircularProgress value={pct} size={42} strokeWidth={5} />
+                    <CircularProgress value={pct} size={40} strokeWidth={4.5} />
                     <div className="text-xs">
                       <span className="font-semibold text-foreground block">{Math.round(pct)}% Complete</span>
                       <span className="text-muted-foreground">{completed} of {projPosts.length} posts</span>
@@ -379,15 +434,15 @@ export const ProjectsPage: React.FC = () => {
                   <DeadlineChip deadline={p.deadline} showIcon={false} />
                 </div>
 
-                {/* Footer */}
+                {/* Footer: Manager and Students count */}
                 <div className="pt-2 border-t border-border/50 flex items-center justify-between text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1.5">
-                    <Users className="h-3.5 w-3.5" />
-                    <span>{p.members_count || 3} members</span>
+                  <div className="flex items-center gap-1.5" title="Assigned Manager">
+                    <UserCheck className="h-3.5 w-3.5 text-primary-500" />
+                    <span className="truncate max-w-[130px]">{p.assigned_manager?.full_name || 'No Manager'}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <HardDrive className="h-3.5 w-3.5 text-emerald-500" />
-                    <span className="font-mono text-[10px]">{p.google_drive_folder_id}</span>
+                  <div className="flex items-center gap-1.5" title="Assigned Students">
+                    <Users className="h-3.5 w-3.5" />
+                    <span>{p.assigned_students?.length || 0} students</span>
                   </div>
                 </div>
               </div>
@@ -404,46 +459,39 @@ export const ProjectsPage: React.FC = () => {
         />
       )}
 
-      {/* Create Project Drawer */}
+      {/* Admin Initiate Project Drawer (Requirement 1) */}
       <Drawer
         isOpen={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title="Initiate New Campaign Project"
-        description="Bind deliverables to a client brand, schedule milestones, and link Drive folder."
+        description="Admin defines the campaign, specifies optional brief for the Manager, and assigns team."
         width="md"
       >
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase">
-              Client Brand *
-            </label>
-            <Select {...register('client_id')} className="mt-1 text-xs">
-              {clients.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-              ))}
-            </Select>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">
-              Project Campaign Name *
+              Project Title *
             </label>
             <Input
               {...register('name')}
-              placeholder="e.g. Q1 Global Product Reveal"
+              placeholder="e.g. Q4 Global Brand Awareness"
               error={errors.name?.message}
               className="mt-1"
             />
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">
-              Strategic Description
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-muted-foreground uppercase">
+                Manager Brief / Instructions
+              </label>
+              <span className="text-[10px] text-muted-foreground font-mono">Optional</span>
+            </div>
             <Textarea
               {...register('description')}
-              placeholder="Key campaign pillars, channels, and visual goals..."
+              placeholder="Brief for the Manager (what to do in this project). If left empty, Manager will see 'No specific instructions from Admin'..."
               className="mt-1 text-xs"
+              rows={3}
             />
           </div>
 
@@ -460,7 +508,7 @@ export const ProjectsPage: React.FC = () => {
             </div>
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase">
-                Priority Level *
+                Priority *
               </label>
               <Select {...register('priority')} className="mt-1 text-xs">
                 <option value="low">Low</option>
@@ -483,30 +531,78 @@ export const ProjectsPage: React.FC = () => {
             />
           </div>
 
-          {/* Drive mapping */}
-          <div className="p-3 bg-muted/30 rounded-lg border border-border/60 space-y-3">
-            <span className="text-xs font-semibold text-foreground flex items-center gap-2">
-              <HardDrive className="h-4 w-4 text-primary-600" />
-              Google Drive Asset Binding
-            </span>
-            <div>
-              <label className="text-xs text-muted-foreground">Folder Identifier *</label>
-              <Input
-                {...register('google_drive_folder_id')}
-                placeholder="e.g. drive-folder-q1-launch"
-                error={errors.google_drive_folder_id?.message}
-                className="mt-1 font-mono text-xs"
-              />
+          {/* Assigned Manager (Requirement 1: 1 assigned Manager) */}
+          <div className="p-3 bg-muted/30 rounded-xl border border-border/60 space-y-2">
+            <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+              <UserCheck className="h-4 w-4 text-primary-600" />
+              <span>Assigned Campaign Manager *</span>
+            </label>
+            {activeManagers.length === 0 ? (
+              <div className="text-xs text-amber-600 dark:text-amber-400 p-2 bg-amber-50 dark:bg-amber-950/40 rounded-lg">
+                No active Manager accounts found. Create a Manager in User Management first.
+              </div>
+            ) : (
+              <Select {...register('assigned_manager_id')} className="text-xs">
+                <option value="">Select an active Manager...</option>
+                {activeManagers.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.full_name} ({m.email})
+                  </option>
+                ))}
+              </Select>
+            )}
+            {errors.assigned_manager_id && (
+              <p className="text-xs text-red-500">{errors.assigned_manager_id.message}</p>
+            )}
+          </div>
+
+          {/* Assigned Students (Requirement 1: multiple assigned Students) */}
+          <div className="p-3 bg-muted/30 rounded-xl border border-border/60 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-primary-600" />
+                <span>Assigned Students</span>
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                {selectedStudentIds.length} selected
+              </span>
             </div>
-            <div>
-              <label className="text-xs text-muted-foreground">Drive Folder URL</label>
-              <Input
-                {...register('google_drive_folder_url')}
-                placeholder="https://drive.google.com/drive/folders/..."
-                error={errors.google_drive_folder_url?.message}
-                className="mt-1 text-xs"
-              />
-            </div>
+
+            {activeStudents.length === 0 ? (
+              <div className="text-xs text-muted-foreground p-2 bg-background rounded-lg border border-border/50">
+                No active student accounts yet. You can assign students later in User Management.
+              </div>
+            ) : (
+              <div className="max-h-40 overflow-y-auto space-y-1.5 p-1">
+                {activeStudents.map(s => {
+                  const isChecked = selectedStudentIds.includes(s.id);
+                  return (
+                    <label
+                      key={s.id}
+                      className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
+                        isChecked
+                          ? 'border-primary-500 bg-primary-50/40 dark:bg-primary-950/20'
+                          : 'border-border/60 hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleStudentSelection(s.id)}
+                          className="rounded border-border text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="font-medium text-foreground">{s.full_name}</span>
+                      </div>
+                      <span className="text-[11px] text-muted-foreground font-mono">{s.email}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              After creating the project, you will set separate Video and Image Drive folders for each student on the Team & Folders tab.
+            </p>
           </div>
 
           <div className="pt-4 border-t border-border flex justify-end gap-2">
@@ -520,13 +616,13 @@ export const ProjectsPage: React.FC = () => {
         </form>
       </Drawer>
 
-      {/* Delete / Archive Confirmation Dialog */}
+      {/* Confirmation Dialog */}
       <ConfirmationDialog
         isOpen={deleteConfirmDialog.open}
         onClose={() => setDeleteConfirmDialog({ open: false })}
         onConfirm={handleDeleteProject}
         title="Archive Campaign Project"
-        description={`Are you sure you want to archive "${deleteConfirmDialog.project?.name}"? All assigned deliverables will be archived.`}
+        description={`Are you sure you want to archive "${deleteConfirmDialog.project?.name}"?`}
         confirmLabel="Archive Project"
         isDestructive={true}
       />

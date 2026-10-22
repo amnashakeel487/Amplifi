@@ -21,6 +21,8 @@ import {
 
 interface RichTextEditorProps {
   value?: string;
+  content?: string;
+  minHeight?: string;
   onChange: (html: string, plainText: string) => void;
   placeholder?: string;
   className?: string;
@@ -28,12 +30,15 @@ interface RichTextEditorProps {
 }
 
 export const RichTextEditor: React.FC<RichTextEditorProps> = ({
-  value = '',
+  value,
+  content,
+  minHeight = '180px',
   onChange,
   placeholder = 'Write or paste ChatGPT-formatted content (headings, bullets, bold, emojis)...',
   className = '',
   readOnly = false,
 }) => {
+  const initialValue = value ?? content ?? '';
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -51,7 +56,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         placeholder,
       }),
     ],
-    content: value,
+    content: initialValue,
     editable: !readOnly,
     onUpdate: ({ editor }) => {
       const rawHtml = editor.getHTML();
@@ -67,11 +72,12 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     },
   });
 
+  const effectiveValue = value ?? content;
   useEffect(() => {
-    if (editor && value !== undefined && value !== editor.getHTML()) {
-      editor.commands.setContent(value);
+    if (editor && effectiveValue !== undefined && effectiveValue !== editor.getHTML()) {
+      editor.commands.setContent(effectiveValue);
     }
-  }, [value, editor]);
+  }, [effectiveValue, editor]);
 
   if (!editor) {
     return null;

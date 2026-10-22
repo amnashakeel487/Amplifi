@@ -4,6 +4,7 @@ export type UserStatus = 'active' | 'inactive' | 'suspended';
 export interface UserProfile {
   id: string;
   email: string;
+  google_email?: string;
   full_name: string;
   avatar_url?: string;
   role: UserRole;
@@ -20,27 +21,29 @@ export interface UserProfile {
 
 export type PostWorkflowStatus =
   | 'draft'
+  | 'assigned'
+  | 'student_created'
+  | 'in_progress'
+  | 'submitted'
+  | 'under_review'
+  | 'revision_required'
+  | 'manager_approved'
+  | 'recommended_to_admin'
+  | 'approved'
+  | 'rejected'
+  | 'ready_to_publish'
+  | 'scheduled'
+  | 'published'
+  | 'cancelled'
+  | 'failed_publishing'
+  // Compatibility aliases
   | 'text_submitted'
   | 'text_revision_required'
   | 'text_approved'
   | 'media_in_progress'
   | 'media_submitted'
   | 'media_revision_required'
-  | 'manager_approved'
-  | 'pending_admin_approval'
-  | 'approved'
-  | 'ready_to_publish'
-  | 'scheduled'
-  | 'published'
-  | 'rejected'
-  | 'cancelled'
-  | 'failed_publishing'
-  // Legacy compatibility aliases
-  | 'assigned'
-  | 'in_progress'
-  | 'submitted'
-  | 'under_review'
-  | 'revision_required';
+  | 'pending_admin_approval';
 
 export type PriorityLevel = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -63,14 +66,20 @@ export interface Client {
 
 export interface Project {
   id: string;
-  client_id: string;
+  client_id?: string;
   client?: Client;
   name: string;
+  title?: string;
   description?: string;
   status: 'planning' | 'active' | 'on_hold' | 'completed' | 'archived';
   priority: PriorityLevel;
   start_date?: string;
   deadline?: string;
+  assigned_manager_id?: string;
+  assigned_manager?: UserProfile;
+  assigned_students?: UserProfile[];
+  assigned_student_ids?: string[];
+  drive_folder_id?: string;
   google_drive_folder_id?: string;
   google_drive_folder_url?: string;
   google_drive_folder_status?: 'pending' | 'connected' | 'invalid_permissions' | 'error';
@@ -79,6 +88,25 @@ export interface Project {
   updated_at?: string;
   members_count?: number;
   posts_count?: number;
+}
+
+export type FolderMediaType = 'video' | 'image';
+export type FolderVerificationStatus = 'not_set' | 'verified' | 'no_access' | 'not_a_folder' | 'error';
+
+export interface ProjectStudentFolder {
+  id: string;
+  project_id: string;
+  student_id: string;
+  student?: UserProfile;
+  media_type: FolderMediaType;
+  drive_folder_id: string;
+  drive_folder_url?: string;
+  permission_verified: boolean;
+  verified_at?: string;
+  verified_error?: string;
+  verification_status: FolderVerificationStatus;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface ProjectMember {
@@ -112,21 +140,32 @@ export interface Post {
   project?: Project;
   title: string;
   caption?: string;
+  content?: string;
   description_html?: string;
   description_json?: any;
   hashtags: string[];
   platforms: SocialPlatform[];
+  platform?: SocialPlatform;
   status: PostWorkflowStatus;
   priority: PriorityLevel;
+  origin?: 'manager_assigned' | 'student_created';
+  content_type: 'video' | 'image';
+  manager_recommendation_note?: string;
+  target_folder_id?: string;
   target_publish_date?: string;
+  scheduled_date?: string;
   deadline?: string;
   assigned_student_id?: string;
+  assigned_creator_id?: string;
   assigned_student?: UserProfile;
   assigned_manager_id?: string;
   assigned_manager?: UserProfile;
   assigned_publisher_id?: string;
   assigned_publisher?: UserProfile;
+  publisher?: 'admin' | 'manager';
+  publisher_id?: string;
   publisher_role?: UserRole;
+  version_count?: number;
   creative_specs?: string;
   reference_links?: string[];
   google_drive_assets_folder_id?: string;

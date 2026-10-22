@@ -4,8 +4,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   XCircle,
-  FileEdit,
-  Send,
   Sparkles,
   Layers,
   FileText,
@@ -14,11 +12,10 @@ import {
   MessageSquare,
   AlertTriangle,
   ArrowRight,
-  Maximize2,
-  Check,
   RotateCcw,
   ShieldCheck,
-  Eye,
+  Video,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { mockDb } from '@/lib/mock-db';
 import { Post, PostWorkflowStatus } from '@/lib/types';
@@ -30,209 +27,116 @@ import { DeadlineChip } from '@/components/ui/deadline-chip';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
 import { Drawer } from '@/components/ui/drawer';
+import { Modal } from '@/components/ui/modal';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
-import { GoogleDocsBriefPanel } from '@/components/google-docs/GoogleDocsBriefPanel';
-import { MediaPreviewLightbox, MediaAsset } from '@/components/media/MediaPreviewLightbox';
-import { PlatformCounters } from '@/components/posts/PlatformCounters';
 import { FormattedContent } from '@/components/ui/formatted-content';
 import { CopyTextActions } from '@/components/ui/copy-text-actions';
-import { formatBytes, formatRelativeTime } from '@/lib/utils';
-
-interface InlineSuggestion {
-  id: string;
-  author: string;
-  role: string;
-  originalText: string;
-  suggestedText: string;
-  comment: string;
-  type: 'suggestion' | 'revision' | 'note';
-  resolved: boolean;
-  createdAt: string;
-}
+import { formatBytes } from '@/lib/utils';
 
 export const ProofreadingReviewPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isManager, isAdmin } = useAuth();
   const { showToast } = useNotifications();
 
-  const postId = id || 'post-01';
-  const post = mockDb.getPost(postId);
+  const postId = id || '';
+  const [post, setPost] = useState<Post | undefined>(() => mockDb.getPost(postId));
 
-  // Lightbox
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [activeMediaAsset, setActiveMediaAsset] = useState<MediaAsset | null>(null);
-
-  // Suggestions & Proofreading Comments
-  const [suggestions, setSuggestions] = useState<InlineSuggestion[]>([
-    {
-      id: 'sug-1',
-      author: 'Sarah Jenkins',
-      role: 'manager',
-      originalText: 'mitigating exposure in volatile markets',
-      suggestedText: 'neutralizing tail-risk exposure in sub-second trading environments',
-      comment: 'Use sharper institutional terminology consistent with C-suite expectations.',
-      type: 'suggestion',
-      resolved: false,
-      createdAt: '2 hours ago',
-    },
-    {
-      id: 'sug-2',
-      author: 'Sarah Jenkins',
-      role: 'manager',
-      originalText: 'link in bio to read our Q4 whitepaper',
-      suggestedText: 'Access our peer-reviewed algorithmic benchmark at the link in bio',
-      comment: 'Emphasize data credibility and peer-reviewed methodology.',
-      type: 'suggestion',
-      resolved: true,
-      createdAt: '1 hour ago',
-    },
-  ]);
-
-  // Form to add suggestion
-  const [newOriginal, setNewOriginal] = useState('');
-  const [newSuggested, setNewSuggested] = useState('');
-  const [newRationale, setNewRationale] = useState('');
-  const [newType, setNewType] = useState<'suggestion' | 'revision' | 'note'>('suggestion');
-
-  // Decision Dialogs
+  // Decision Modals
   const [revisionDrawerOpen, setRevisionDrawerOpen] = useState(false);
   const [revisionNotes, setRevisionNotes] = useState('');
   const [revisionError, setRevisionError] = useState('');
 
-  const [decisionConfirmOpen, setDecisionConfirmOpen] = useState(false);
-  const [targetDecision, setTargetDecision] = useState<'approve' | 'forward'>('approve');
+  const [recommendModalOpen, setRecommendModalOpen] = useState(false);
+  const [recommendationNote, setRecommendationNote] = useState('');
 
   if (!post) {
     return (
-      <div className="p-12 text-center">
-        <h2 className="text-xl font-bold">Post Not Found</h2>
-        <Button onClick={() => navigate('/posts')} className="mt-4">
-          Back to Posts
+      <div className="p-12 text-center space-y-4">
+        <h2 className="text-xl font-bold">Deliverable Not Found</h2>
+        <Button onClick={() => navigate('/projects')} variant="primary">
+          Back to Projects
         </Button>
       </div>
     );
   }
 
-  const sampleMedia: MediaAsset = {
-    id: 'media-rev-1',
-    title: `${post.title} (Production Deliverable)`,
-    type: post.platforms.includes('tiktok') ? 'video' : 'carousel',
-    url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
-    aspectRatio: '1:1',
-    sizeBytes: 4201940,
-    slides: [
-      'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
-      'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=1000&auto=format&fit=crop&q=80',
-    ],
-    driveUrl: post.google_drive_assets_url,
-  };
+  const latestAsset = post.assets?.[post.assets.length - 1];
 
-  const handleAddSuggestion = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSuggested && !newRationale) return;
-
-    const newEntry: InlineSuggestion = {
-      id: `sug-${Date.now()}`,
-      author: user?.full_name || 'Sarah Jenkins',
-      role: user?.role || 'manager',
-      originalText: newOriginal.trim(),
-      suggestedText: newSuggested.trim(),
-      comment: newRationale.trim(),
-      type: newType,
-      resolved: false,
-      createdAt: 'Just now',
-    };
-
-    setSuggestions(prev => [newEntry, ...prev]);
-    setNewOriginal('');
-    setNewSuggested('');
-    setNewRationale('');
-    showToast({
-      type: 'info',
-      title: 'Suggestion Recorded',
-      message: 'Creator will see this change request in their workspace.',
-    });
-  };
-
-  const toggleResolved = (sugId: string) => {
-    setSuggestions(prev =>
-      prev.map(s => (s.id === sugId ? { ...s, resolved: !s.resolved } : s))
-    );
-  };
-
-  const isTextStage = ['text_submitted', 'submitted'].includes(post.status);
-  const isMediaStage = ['media_submitted', 'under_review'].includes(post.status);
-
-  const handleApproveText = () => {
-    mockDb.updatePost(post.id, {
-      status: 'text_approved',
+  const handleApprove = () => {
+    const updated = mockDb.updatePost(post.id, {
+      status: 'manager_approved',
       updated_at: new Date().toISOString(),
     });
+    setPost(updated);
+
     mockDb.logAudit({
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: 'TEXT_APPROVED_BY_MANAGER',
+      action: 'MANAGER_APPROVED_POST',
       entity_type: 'post',
       entity_id: post.id,
-      details: { decision: 'Manager approved text. Media stage unlocked for creator.' },
+      details: { decision: 'Manager approved deliverable' },
     });
+
     showToast({
       type: 'success',
-      title: 'Text Copy Approved!',
-      message: `"${post.title}" moved to Text Approved. Creator can now create & upload media assets to Drive.`,
+      title: 'Deliverable Approved by Manager',
+      message: `"${post.title}" marked as Manager Approved. You can now Recommend it to the Admin.`,
     });
-    setDecisionConfirmOpen(false);
-    navigate(`/posts/${post.id}`);
   };
 
-  const handleForwardToAdmin = () => {
-    mockDb.updatePost(post.id, {
-      status: 'pending_admin_approval',
-      updated_at: new Date().toISOString(),
-    });
+  const handleRecommendToAdmin = () => {
+    if (!recommendationNote.trim()) {
+      showToast({ type: 'error', title: 'Note Required', message: 'Please provide a rationale note for the Administrator.' });
+      return;
+    }
+
+    const updated = mockDb.recommendToAdmin(post.id, recommendationNote.trim());
+    setPost(updated);
+
     mockDb.logAudit({
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: 'FORWARDED_TO_ADMIN',
+      action: 'MANAGER_RECOMMENDED_TO_ADMIN',
       entity_type: 'post',
       entity_id: post.id,
-      details: { decision: 'Manager proofreading passed. Forwarded to Admin Queue.' },
+      details: { note: recommendationNote.trim() },
     });
+
     showToast({
       type: 'success',
-      title: 'Sent to Admin for Final Approval',
-      message: `"${post.title}" is now awaiting executive sign-off. Manager cannot grant final approval.`,
+      title: 'Recommended to Admin',
+      message: `"${post.title}" forwarded for Admin executive approval.`,
     });
-    setDecisionConfirmOpen(false);
-    navigate(`/posts/${post.id}`);
+
+    setRecommendModalOpen(false);
+    navigate(`/projects/${post.project_id}`);
   };
 
   const handleExecuteRevision = (e: React.FormEvent) => {
     e.preventDefault();
-    if (revisionNotes.trim().length < 10) {
-      setRevisionError('Please provide a specific feedback explanation (minimum 10 characters).');
+    if (revisionNotes.trim().length < 5) {
+      setRevisionError('Please provide a specific feedback explanation.');
       return;
     }
     setRevisionError('');
 
-    const targetRevStatus = isTextStage ? 'text_revision_required' : 'media_revision_required';
-
-    mockDb.updatePost(post.id, {
-      status: targetRevStatus,
+    const updated = mockDb.updatePost(post.id, {
+      status: 'revision_required',
       revision_instructions: revisionNotes.trim(),
       updated_at: new Date().toISOString(),
     });
+    setPost(updated);
 
     mockDb.logAudit({
       user_id: user?.id,
       user_email: user?.email,
       user_role: user?.role,
-      action: isTextStage ? 'TEXT_REVISION_REQUESTED' : 'MEDIA_REVISION_REQUESTED',
+      action: 'REVISION_REQUESTED',
       entity_type: 'post',
       entity_id: post.id,
       details: { instructions: revisionNotes.trim() },
@@ -241,11 +145,11 @@ export const ProofreadingReviewPage: React.FC = () => {
     showToast({
       type: 'warning',
       title: 'Revision Dispatched',
-      message: `Returned to creator with your specific proofreading notes.`,
+      message: 'Returned to student with your specific feedback notes.',
     });
 
     setRevisionDrawerOpen(false);
-    navigate(`/posts/${post.id}`);
+    navigate(`/projects/${post.project_id}`);
   };
 
   return (
@@ -256,10 +160,10 @@ export const ProofreadingReviewPage: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate(`/posts/${post.id}`)}
+            onClick={() => navigate(`/projects/${post.project_id}`)}
             leftIcon={<ArrowLeft className="h-4 w-4" />}
           >
-            Post Detail
+            Project
           </Button>
           <div className="h-4 w-px bg-border/80 hidden sm:block" />
           <div>
@@ -268,6 +172,10 @@ export const ProofreadingReviewPage: React.FC = () => {
                 {post.project?.name}
               </span>
               <StatusBadge status={post.status} size="sm" />
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase bg-muted px-2 py-0.5 rounded font-bold">
+                {post.content_type === 'video' ? <Video className="h-3 w-3 text-indigo-500" /> : <ImageIcon className="h-3 w-3 text-emerald-500" />}
+                {post.content_type}
+              </span>
             </div>
             <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate max-w-xl">
               {post.title}
@@ -281,304 +189,256 @@ export const ProofreadingReviewPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Side-by-Side Split Workspace (12-column grid) */}
+      {/* Main Review Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN: Media Preview & Caption Copy (6 cols) */}
-        <div className="lg:col-span-6 space-y-6">
-          {/* Deliverable Media Box */}
+        {/* LEFT COLUMN: Media Preview & Copy (7 cols) */}
+        <div className="lg:col-span-7 space-y-6">
+          {/* Media Deliverable Card */}
           <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-border/60">
               <span className="text-xs font-semibold text-foreground flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary-600" />
-                Submitted Visual Deliverable
+                Submitted {post.content_type.toUpperCase()} Deliverable
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setActiveMediaAsset(sampleMedia);
-                  setLightboxOpen(true);
-                }}
-                leftIcon={<Maximize2 className="h-3.5 w-3.5" />}
-                className="text-xs h-7"
-              >
-                Inspect Lightbox
-              </Button>
+              {latestAsset && (
+                <span className="text-xs font-mono text-muted-foreground">
+                  Version {latestAsset.version_number}
+                </span>
+              )}
             </div>
 
-            <div
-              onClick={() => {
-                setActiveMediaAsset(sampleMedia);
-                setLightboxOpen(true);
-              }}
-              className="relative aspect-video sm:aspect-square rounded-xl overflow-hidden bg-black/10 cursor-pointer group shadow-soft-sm"
-            >
-              <img
-                src={sampleMedia.url}
-                alt="Deliverable preview"
-                className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
-              />
-              <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-medium text-xs gap-1.5">
-                <Maximize2 className="h-5 w-5" />
-                <span>Click to zoom & inspect slides</span>
+            {latestAsset ? (
+              <div className="p-4 rounded-xl bg-muted/20 border border-border/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground">{latestAsset.file_name}</h4>
+                    <span className="text-xs text-muted-foreground font-mono">
+                      {latestAsset.file_type} • {formatBytes(latestAsset.file_size_bytes)}
+                    </span>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => window.open(latestAsset.drive_file_url, '_blank')}
+                    rightIcon={<ExternalLink className="h-3.5 w-3.5" />}
+                  >
+                    Open Deliverable in Drive
+                  </Button>
+                </div>
+
+                {latestAsset.submission_notes && (
+                  <div className="p-3 rounded-lg bg-background border border-border/60 text-xs">
+                    <span className="font-semibold text-foreground block mb-0.5">Student Notes:</span>
+                    <p className="text-muted-foreground">{latestAsset.submission_notes}</p>
+                  </div>
+                )}
               </div>
-              <span className="absolute bottom-3 left-3 px-2 py-0.5 rounded bg-black/70 text-white font-mono text-[10px] font-semibold">
-                {sampleMedia.aspectRatio} format • 2 slides
-              </span>
-            </div>
+            ) : (
+              <div className="p-8 text-center text-xs text-muted-foreground bg-muted/20 rounded-xl">
+                No visual media deliverable submitted yet.
+              </div>
+            )}
           </div>
 
-          {/* Caption & Hashtag Panel (Requirement 2: Rich text preservation & dual copy buttons) */}
+          {/* Copy Preview Card (Formatted Text with Copy Buttons) */}
           <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-border/60">
+            <div className="flex items-center justify-between pb-2 border-b border-border/60">
               <span className="text-xs font-semibold text-foreground flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary-600" />
-                Post Copy & Description (Rich Text Preserved)
+                Post Copy & Formatting
               </span>
               <CopyTextActions
                 htmlContent={post.description_html}
                 plainText={post.caption}
-                size="xs"
+                size="sm"
               />
             </div>
 
-            <div className="p-4 rounded-xl bg-muted/30 border border-border/60 text-sm font-sans leading-relaxed select-text">
-              <FormattedContent
-                html={post.description_html}
-                fallbackText={post.caption}
-              />
+            <div className="p-4 rounded-xl bg-muted/20 border border-border/50 text-sm">
+              <FormattedContent content={post.description_html || post.caption || ''} />
             </div>
 
-            {/* Platform Counters */}
-            <div className="pt-2">
-              <PlatformCounters
-                caption={post.caption || ''}
-                hashtags={post.hashtags || []}
-                platforms={post.platforms}
-              />
-            </div>
+            {/* Hashtags */}
+            {post.hashtags && post.hashtags.length > 0 && (
+              <div className="pt-2">
+                <span className="text-[11px] font-semibold text-muted-foreground uppercase block mb-1">
+                  Hashtags
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {post.hashtags.map((tag, idx) => (
+                    <span
+                      key={idx}
+                      className="text-xs font-mono text-primary-600 bg-primary-50 dark:bg-primary-950 px-2 py-0.5 rounded"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-
-          {/* Google Docs Brief Accordion */}
-          <GoogleDocsBriefPanel
-            docsUrl={post.google_docs_brief_url}
-            docsId={post.google_docs_brief_id}
-            postTitle={post.title}
-            defaultExpanded={false}
-          />
         </div>
 
-        {/* RIGHT COLUMN: Proofreading, Inline Suggestions & Decision Workspace (6 cols) */}
-        <div className="lg:col-span-6 space-y-6">
-          {/* Annotation & Suggestion Composer */}
-          <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
-              <span className="text-xs font-semibold text-foreground flex items-center gap-2">
-                <FileEdit className="h-4 w-4 text-primary-600" />
-                Add Proofreading Annotation
-              </span>
-              <span className="text-[11px] text-muted-foreground">Inline editorial markup</span>
-            </div>
-
-            <form onSubmit={handleAddSuggestion} className="space-y-3 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Mark as:</span>
-                <button
-                  type="button"
-                  onClick={() => setNewType('suggestion')}
-                  className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-colors ${
-                    newType === 'suggestion' ? 'bg-primary-600 text-white' : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  Copy Replacement
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewType('revision')}
-                  className={`px-2.5 py-1 rounded-md font-medium text-[11px] transition-colors ${
-                    newType === 'revision' ? 'bg-amber-600 text-white' : 'bg-muted text-muted-foreground'
-                  }`}
-                >
-                  Visual Revision
-                </button>
-              </div>
-
-              <div>
-                <label className="text-muted-foreground block mb-1">Target Phrase (From caption or slide)</label>
-                <Input
-                  value={newOriginal}
-                  onChange={e => setNewOriginal(e.target.value)}
-                  placeholder="e.g. mitigating exposure in volatile markets"
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-muted-foreground block mb-1">Suggested Replacement</label>
-                <Input
-                  value={newSuggested}
-                  onChange={e => setNewSuggested(e.target.value)}
-                  placeholder="e.g. neutralizing tail-risk exposure in sub-second trading environments"
-                  className="text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-muted-foreground block mb-1">Editorial Rationale / Note</label>
-                <Textarea
-                  value={newRationale}
-                  onChange={e => setNewRationale(e.target.value)}
-                  placeholder="Explain why this tone adjustment aligns with the Google Docs brief..."
-                  className="text-xs min-h-[70px]"
-                />
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <Button type="submit" variant="primary" size="sm" leftIcon={<Send className="h-3.5 w-3.5" />}>
-                  Post Annotation
-                </Button>
-              </div>
-            </form>
-          </div>
-
-          {/* Active Annotations & Suggestions List */}
+        {/* RIGHT COLUMN: Author, Notes, History (5 cols) */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Creator Profile */}
           <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-border/60">
-              <span className="text-xs font-semibold text-foreground">
-                Editorial Annotations ({suggestions.length})
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                {suggestions.filter(s => s.resolved).length} resolved
-              </span>
-            </div>
-
-            <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
-              {suggestions.map(item => (
-                <div
-                  key={item.id}
-                  className={`p-3.5 rounded-xl border text-xs space-y-2.5 transition-all ${
-                    item.resolved
-                      ? 'bg-muted/20 border-border/40 opacity-70'
-                      : 'bg-card border-border shadow-soft-sm'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Avatar name={item.author} size="sm" />
-                      <span className="font-semibold text-foreground">{item.author}</span>
-                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted uppercase text-muted-foreground">
-                        {item.role}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => toggleResolved(item.id)}
-                      className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded transition-colors ${
-                        item.resolved
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                          : 'bg-muted text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Check className="h-3 w-3" />
-                      <span>{item.resolved ? 'Resolved' : 'Mark Resolved'}</span>
-                    </button>
-                  </div>
-
-                  {/* Suggestion comparison */}
-                  {item.originalText && (
-                    <div className="space-y-1 bg-muted/30 p-2.5 rounded-lg border border-border/40 font-mono text-[11px]">
-                      <div className="text-red-600 line-through">
-                        - {item.originalText}
-                      </div>
-                      {item.suggestedText && (
-                        <div className="text-emerald-600 font-semibold">
-                          + {item.suggestedText}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <p className="text-muted-foreground leading-relaxed">{item.comment}</p>
-                </div>
-              ))}
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase">Submitted By</h3>
+            <div className="flex items-center gap-3">
+              <Avatar name={post.assigned_student?.full_name || 'Creator'} size="md" />
+              <div>
+                <h4 className="text-sm font-semibold text-foreground">
+                  {post.assigned_student?.full_name || 'Assigned Student'}
+                </h4>
+                <p className="text-xs text-muted-foreground">{post.assigned_student?.email}</p>
+                <span className="inline-block text-[10px] uppercase font-mono mt-0.5 px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                  {post.origin === 'student_created' ? 'Independent Post' : 'Topic Assigned'}
+                </span>
+              </div>
             </div>
           </div>
+
+          {/* Manager Recommendation Note (if already recommended) */}
+          {post.manager_recommendation_note && (
+            <div className="rounded-xl border border-purple-200 dark:border-purple-900 bg-purple-50/50 dark:bg-purple-950/20 p-5 shadow-soft space-y-2">
+              <span className="text-xs font-bold text-purple-900 dark:text-purple-200 uppercase flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-purple-600" />
+                Manager Recommendation Note
+              </span>
+              <p className="text-xs text-purple-800 dark:text-purple-300 italic">
+                "{post.manager_recommendation_note}"
+              </p>
+            </div>
+          )}
+
+          {/* Text Revision History */}
+          {post.text_versions && post.text_versions.length > 0 && (
+            <div className="rounded-xl border border-border/80 bg-card p-5 shadow-soft space-y-3">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase">
+                Copy Version History ({post.text_versions.length})
+              </h3>
+              <div className="space-y-2 max-h-56 overflow-y-auto">
+                {post.text_versions.map(ver => (
+                  <div key={ver.id} className="p-2.5 rounded-lg border border-border/50 bg-muted/20 text-xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-foreground">v{ver.version_number}</span>
+                      <span className="text-[10px] text-muted-foreground">{new Date(ver.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <p className="line-clamp-2 text-muted-foreground">{ver.caption_plain}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* STICKY MANAGER DECISION BAR AT BOTTOM */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-md border-t border-border/80 p-4 shadow-soft-xl">
-        <div className="mx-auto max-w-[1400px] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Avatar name={user?.full_name || 'Manager'} size="sm" />
-            <div className="text-xs">
-              <span className="font-semibold text-foreground block">
-                Editorial Review Desk • {user?.full_name} ({user?.role})
-              </span>
-              <span className="text-muted-foreground">
-                Sign off on creative deliverables or push back for student revision
-              </span>
-            </div>
+      {/* Floating Manager Decision Bar (Requirement 5) */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 p-4 border-t border-border bg-background/95 backdrop-blur shadow-soft-lg">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <ShieldCheck className="h-4 w-4 text-primary-500" />
+            <span>
+              <strong>Campaign Manager Review</strong>: Proofread copy and verify visual deliverable. Managers can recommend to Admin, but cannot give final approval.
+            </span>
           </div>
 
-          <div className="flex items-center gap-3 self-end sm:self-auto">
-            {/* 1. Request Revision */}
+          <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setRevisionDrawerOpen(true)}
-              leftIcon={<RotateCcw className="h-4 w-4 text-orange-500" />}
-              className="text-xs border-orange-200 dark:border-orange-900/60"
+              leftIcon={<RotateCcw className="h-3.5 w-3.5 text-orange-500" />}
             >
-              {isTextStage ? 'Request Text Revision' : 'Request Media Revision'}
+              Request Revision
             </Button>
 
-            {/* 2. Stage-Specific Advance Action */}
-            {isTextStage ? (
+            {post.status !== 'manager_approved' && post.status !== 'recommended_to_admin' && (
               <Button
-                variant="primary"
+                variant="secondary"
                 size="sm"
-                onClick={() => {
-                  setTargetDecision('approve_text' as any);
-                  setDecisionConfirmOpen(true);
-                }}
-                leftIcon={<CheckCircle2 className="h-4 w-4" />}
+                onClick={handleApprove}
+                leftIcon={<CheckCircle2 className="h-3.5 w-3.5 text-teal-600" />}
               >
-                Approve Text Copy
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => {
-                  setTargetDecision('forward_admin' as any);
-                  setDecisionConfirmOpen(true);
-                }}
-                rightIcon={<ArrowRight className="h-4 w-4" />}
-              >
-                Send to Admin for Final Approval
+                Manager Approve
               </Button>
             )}
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setRecommendationNote(post.manager_recommendation_note || '');
+                setRecommendModalOpen(true);
+              }}
+              leftIcon={<Sparkles className="h-3.5 w-3.5" />}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Recommend to Admin
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Revision Request Drawer (Mandatory Notes Required) */}
+      {/* Recommend to Admin Modal (Requirement 5) */}
+      <Modal
+        isOpen={recommendModalOpen}
+        onClose={() => setRecommendModalOpen(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-purple-600" />
+            <span>Recommend Deliverable to Admin</span>
+          </div>
+        }
+        description={`Endorse "${post.title}" with a rationale note explaining why this deliverable should be approved for release.`}
+        maxWidth="md"
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
+              Manager Rationale Note *
+            </label>
+            <Textarea
+              value={recommendationNote}
+              onChange={e => setRecommendationNote(e.target.value)}
+              placeholder="Explain why this post is ready for public release. Mention copywriting impact, visual deliverable quality, and messaging..."
+              rows={4}
+              className="text-xs"
+            />
+          </div>
+
+          <div className="p-3 bg-purple-50 dark:bg-purple-950/30 rounded-xl border border-purple-200 dark:border-purple-900 text-xs text-purple-900 dark:text-purple-300">
+            This deliverable will move to <strong className="text-foreground">Recommended to Admin</strong>. The Administrator will review this recommendation and decide whether to publish personally or allow you to execute publication.
+          </div>
+
+          <div className="pt-3 border-t border-border flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setRecommendModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleRecommendToAdmin}
+              className="bg-purple-600 hover:bg-purple-700"
+            >
+              Confirm Recommendation
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Revision Drawer */}
       <Drawer
         isOpen={revisionDrawerOpen}
         onClose={() => setRevisionDrawerOpen(false)}
-        title={isTextStage ? "Request Copy Changes" : "Request Media Revisions"}
-        description="Provide actionable proofreading notes. The creator will be notified immediately."
+        title="Request Deliverable Revisions"
+        description="Provide actionable proofreading notes for the student."
         width="md"
       >
         <form onSubmit={handleExecuteRevision} className="space-y-4">
-          <div className="p-3 bg-orange-50 dark:bg-orange-950/30 rounded-xl border border-orange-200 dark:border-orange-900 text-xs text-orange-800 dark:text-orange-300">
-            A clear explanation of required edits is required to return this deliverable to the creator.
-          </div>
-
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1">
-              Specific Revision Checklist & Directions *
+              Revision Feedback & Specific Directions *
             </label>
             <Textarea
               value={revisionNotes}
@@ -586,8 +446,9 @@ export const ProofreadingReviewPage: React.FC = () => {
                 setRevisionNotes(e.target.value);
                 if (revisionError) setRevisionError('');
               }}
-              placeholder={isTextStage ? "e.g. 1. Add call to action. 2. Tone needs to be more authoritative on slide 1..." : "e.g. 1. Color grade slide 2. 2. Fix subtitle timing..."}
-              className="min-h-[140px] text-xs font-sans leading-relaxed"
+              placeholder="e.g. 1. Rephrase opening hook to be more engaging. 2. Verify that video end card includes call to action..."
+              rows={5}
+              className="text-xs"
             />
             {revisionError && <p className="text-xs text-red-500 font-medium mt-1">{revisionError}</p>}
           </div>
@@ -596,35 +457,12 @@ export const ProofreadingReviewPage: React.FC = () => {
             <Button variant="outline" type="button" onClick={() => setRevisionDrawerOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
-              Dispatch Revision to Creator
+            <Button variant="destructive" type="submit">
+              Dispatch Revision to Student
             </Button>
           </div>
         </form>
       </Drawer>
-
-      {/* Decision Confirmation Dialog */}
-      <ConfirmationDialog
-        isOpen={decisionConfirmOpen}
-        onClose={() => setDecisionConfirmOpen(false)}
-        onConfirm={targetDecision === ('approve_text' as any) ? handleApproveText : handleForwardToAdmin}
-        title={targetDecision === ('approve_text' as any) ? 'Approve Copy Deliverable' : 'Forward to Admin Approval'}
-        description={
-          targetDecision === ('approve_text' as any)
-            ? `Approve text for "${post.title}"? This will unlock the Media Stage and notify the creator to upload assets into their assigned Drive folder.`
-            : `Forward "${post.title}" to the Executive Admin for final approval? (Note: Managers cannot grant final authorization)`
-        }
-        confirmLabel={targetDecision === ('approve_text' as any) ? 'Approve Text' : 'Send to Admin'}
-      />
-
-      {/* Media Lightbox */}
-      {activeMediaAsset && (
-        <MediaPreviewLightbox
-          asset={activeMediaAsset}
-          isOpen={lightboxOpen}
-          onClose={() => setLightboxOpen(false)}
-        />
-      )}
     </div>
   );
 };

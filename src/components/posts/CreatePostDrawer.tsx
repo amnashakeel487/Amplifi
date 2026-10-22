@@ -28,6 +28,7 @@ import { PlatformCounters } from './PlatformCounters';
 const postCreateSchema = z.object({
   project_id: z.string().min(1, 'Project selection is required'),
   title: z.string().min(3, 'Title must be at least 3 characters'),
+  content_type: z.enum(['video', 'image']).default('video'),
   caption: z.string().optional(),
   hashtags_raw: z.string().optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent']),
@@ -82,14 +83,15 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
     defaultValues: {
       project_id: defaultProjectId || projects[0]?.id || '',
       title: '',
+      content_type: 'video',
       caption: '',
-      hashtags_raw: 'FinTech, BankingAI, ComplianceTech',
+      hashtags_raw: '',
       priority: 'medium',
       deadline: '2026-11-15T18:00',
       assigned_student_id: isStudentUser ? user.id : (students[0]?.id || ''),
-      creative_specs: '1:1 Square carousel (5 slides) + 9:16 vertical video cut.',
-      google_docs_brief_url: 'https://docs.google.com/document/d/brief-new/edit',
-      google_drive_assets_url: 'https://drive.google.com/drive/folders/new-assets',
+      creative_specs: '',
+      google_docs_brief_url: '',
+      google_drive_assets_url: '',
     },
   });
 
@@ -119,9 +121,11 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
       title: data.title,
       caption: finalCaption,
       description_html: finalHtml,
+      content_type: data.content_type,
+      origin: isStudentUser ? 'student_created' : 'manager_assigned',
       hashtags: watchedHashtags,
       platforms: selectedPlatforms,
-      status: 'text_submitted',
+      status: isStudentUser ? 'student_created' : 'assigned',
       priority: data.priority as PriorityLevel,
       deadline: data.deadline,
       target_publish_date: data.target_publish_date || data.deadline,
@@ -136,8 +140,8 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
 
     showToast({
       type: 'success',
-      title: 'Text Submitted for Review',
-      message: `"${created.title}" submitted to Campaign Manager with preserved rich-text formatting.`,
+      title: isStudentUser ? 'Deliverable Initiated' : 'Deliverable Assigned',
+      message: `"${created.title}" created with content type ${data.content_type.toUpperCase()}.`,
     });
 
     reset();
@@ -203,6 +207,33 @@ export const CreatePostDrawer: React.FC<CreatePostDrawerProps> = ({
             error={errors.title?.message}
             className="mt-1"
           />
+        </div>
+
+        {/* Content Type (Requirement 3 & 4: Video or Image) */}
+        <div>
+          <label className="text-xs font-semibold text-muted-foreground uppercase block mb-1.5">
+            Deliverable Type (Media Folder Target) *
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex items-center gap-2 p-2.5 rounded-lg border border-border/80 cursor-pointer text-xs font-medium hover:bg-muted/30">
+              <input
+                type="radio"
+                value="video"
+                {...register('content_type')}
+                className="text-primary-600 focus:ring-primary-500"
+              />
+              <span>Video Deliverable</span>
+            </label>
+            <label className="flex items-center gap-2 p-2.5 rounded-lg border border-border/80 cursor-pointer text-xs font-medium hover:bg-muted/30">
+              <input
+                type="radio"
+                value="image"
+                {...register('content_type')}
+                className="text-primary-600 focus:ring-primary-500"
+              />
+              <span>Image Deliverable</span>
+            </label>
+          </div>
         </div>
 
         {/* Target Platforms selection */}

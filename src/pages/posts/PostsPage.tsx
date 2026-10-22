@@ -175,13 +175,15 @@ export const PostsPage: React.FC = () => {
           <option value="all">All Statuses</option>
           <option value="draft">Draft</option>
           <option value="assigned">Assigned</option>
+          <option value="student_created">Student Created</option>
           <option value="in_progress">In Progress</option>
           <option value="submitted">Submitted</option>
           <option value="under_review">Under Review</option>
           <option value="revision_required">Revision Required</option>
           <option value="manager_approved">Manager Approved</option>
-          <option value="pending_admin_approval">Pending Admin</option>
+          <option value="recommended_to_admin">Recommended to Admin</option>
           <option value="approved">Approved</option>
+          <option value="ready_to_publish">Ready to Publish</option>
           <option value="published">Published</option>
         </Select>
         <Select

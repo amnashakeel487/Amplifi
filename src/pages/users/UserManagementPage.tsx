@@ -35,6 +35,7 @@ import { StatCard } from '@/components/ui/stat-card';
 const userSchema = z.object({
   full_name: z.string().min(2, 'Full name must be at least 2 characters'),
   email: z.string().email('Valid email address required'),
+  google_email: z.string().email('Valid Google email required').optional().or(z.literal('')),
   role: z.enum(['admin', 'manager', 'student', 'client']),
   status: z.enum(['active', 'inactive', 'suspended']),
   title: z.string().optional(),
@@ -116,6 +117,7 @@ export const UserManagementPage: React.FC = () => {
     setValue('bio', u.bio || '');
     setValue('assigned_drive_folder_id', u.assigned_drive_folder_id || '');
     setValue('assigned_drive_folder_url', u.assigned_drive_folder_url || '');
+    setValue('google_email', u.google_email || '');
     setValue('must_change_password', !!u.must_change_password);
     setDrawerOpen(true);
   };
@@ -132,6 +134,7 @@ export const UserManagementPage: React.FC = () => {
       mockDb.createUser({
         full_name: data.full_name,
         email: data.email,
+        google_email: data.google_email,
         role: data.role,
         status: data.status,
         title: data.title,
@@ -484,6 +487,22 @@ export const UserManagementPage: React.FC = () => {
               error={errors.email?.message}
               className="mt-1"
             />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">
+              Google Account Email (For Drive Verification)
+            </label>
+            <Input
+              type="email"
+              {...register('google_email')}
+              placeholder="e.g. jordan.student@gmail.com"
+              error={errors.google_email?.message}
+              className="mt-1 text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Used by Drive API to verify permission on assigned Video and Image folders.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

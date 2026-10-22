@@ -6,11 +6,12 @@ export interface AvatarProps extends React.ComponentPropsWithoutRef<typeof Avata
   src?: string;
   name?: string;
   fallback?: string;
-  size?: 'sm' | 'default' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'default' | 'lg' | 'xl';
 }
 
 const sizeClasses = {
   sm: 'h-7 w-7 text-[10px]',
+  md: 'h-9 w-9 text-xs',
   default: 'h-9 w-9 text-xs',
   lg: 'h-11 w-11 text-sm',
   xl: 'h-14 w-14 text-base font-semibold',

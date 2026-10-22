@@ -57,10 +57,10 @@ export const ApprovalQueuePage: React.FC = () => {
   const queuePosts = useMemo(() => {
     return posts
       .filter(p =>
-        ['pending_admin_approval', 'manager_approved', 'under_review', 'approved', 'ready_to_publish'].includes(p.status)
+        ['recommended_to_admin', 'pending_admin_approval', 'approved', 'ready_to_publish'].includes(p.status)
       )
       .filter(p => {
-        if (statusFilter === 'pending_admin') return p.status === 'pending_admin_approval';
+        if (statusFilter === 'pending_admin') return p.status === 'recommended_to_admin' || p.status === 'pending_admin_approval';
         if (statusFilter === 'manager_approved') return p.status === 'manager_approved';
         if (statusFilter === 'under_review') return p.status === 'under_review';
         return true;
@@ -105,36 +105,19 @@ export const ApprovalQueuePage: React.FC = () => {
   }>({ open: false, type: 'revision' });
   const [decisionReason, setDecisionReason] = useState('');
 
-  // Sample or Synced Media Assets for Lightbox Preview
+  // Synced Media Assets from Post (Zero fake Unsplash fallback)
   const mediaAssets: MediaAsset[] = useMemo(() => {
     if (activePost?.assets && activePost.assets.length > 0) {
       return activePost.assets.map(a => ({
         id: a.id,
         title: a.file_name,
-        url: a.thumbnail_url || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200',
+        url: a.drive_file_url,
         type: a.file_type.includes('video') ? ('video' as const) : ('image' as const),
         sizeBytes: a.file_size_bytes,
         aspectRatio: '1:1',
       }));
     }
-    return [
-      {
-        id: 'asset-1',
-        title: 'Primary Campaign Asset (Drive)',
-        url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200',
-        type: 'image',
-        sizeBytes: 4200000,
-        aspectRatio: '1:1',
-      },
-      {
-        id: 'asset-2',
-        title: 'Motion Deliverable (Drive)',
-        url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=1200',
-        type: 'image',
-        sizeBytes: 8100000,
-        aspectRatio: '9:16',
-      },
-    ];
+    return [];
   }, [activePost]);
 
   // Managers list for publishing assignment
@@ -464,6 +447,17 @@ export const ApprovalQueuePage: React.FC = () => {
                   </Button>
                 </div>
               </div>
+
+              {/* Requirement 6: Display Manager's Recommendation Note */}
+              {activePost.manager_recommendation_note && (
+                <div className="p-4 bg-purple-50 dark:bg-purple-950/30 rounded-xl border border-purple-200 dark:border-purple-900 text-xs text-purple-900 dark:text-purple-200 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[11px] text-purple-700 dark:text-purple-300">
+                    <Sparkles className="h-4 w-4 text-purple-600" />
+                    <span>Campaign Manager Recommendation Rationale</span>
+                  </div>
+                  <p className="text-sm font-medium italic">"{activePost.manager_recommendation_note}"</p>
+                </div>
+              )}
 
               {/* Media Preview Thumbnail strip with Lightbox */}
               <div className="space-y-2">

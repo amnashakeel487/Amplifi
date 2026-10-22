@@ -153,32 +153,16 @@ export const PostDetailPage: React.FC = () => {
     );
   }
 
-  // Sample media assets for preview
-  const mediaAssets: MediaAsset[] = [
-    {
-      id: 'asset-01',
-      title: 'Main Visual Carousel (5 Slides)',
-      type: 'carousel',
-      url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
-      aspectRatio: '1:1',
-      sizeBytes: 3410290,
-      slides: [
-        'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
-        'https://images.unsplash.com/photo-1634017839464-5c339ebe3cb4?w=1000&auto=format&fit=crop&q=80',
-        'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1000&auto=format&fit=crop&q=80',
-      ],
-      driveUrl: post.google_drive_assets_url,
-    },
-    {
-      id: 'asset-02',
-      title: 'Vertical Reel Teaser Cut (9:16)',
-      type: 'video',
-      url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      aspectRatio: '9:16',
-      sizeBytes: 14209120,
-      driveUrl: post.google_drive_assets_url,
-    },
-  ];
+  // Deliverable media assets from post (Zero fake fallback)
+  const mediaAssets: MediaAsset[] = (post.assets || []).map(a => ({
+    id: a.id,
+    title: a.file_name,
+    type: a.file_type.includes('video') ? ('video' as const) : ('image' as const),
+    url: a.drive_file_url,
+    aspectRatio: '1:1',
+    sizeBytes: a.file_size_bytes,
+    driveUrl: a.drive_file_url,
+  }));
 
   // Available transitions
   const availableTransitions = getAvailableTransitions(post.status, role || 'student');

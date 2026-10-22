@@ -53,9 +53,9 @@ export const ManagerDashboard: React.FC = () => {
     return allPosts.filter(p => p.project_id === selectedProjectId);
   }, [allPosts, selectedProjectId]);
 
-  // Review Queue: Text submissions and media deliverables needing manager proofreading
+  // Review Queue: deliverables needing manager proofreading
   const reviewQueue = useMemo(
-    () => filteredPosts.filter(p => ['text_submitted', 'media_submitted', 'submitted', 'under_review'].includes(p.status)),
+    () => filteredPosts.filter(p => ['submitted', 'under_review'].includes(p.status)),
     [filteredPosts]
   );
 
@@ -71,18 +71,17 @@ export const ManagerDashboard: React.FC = () => {
   );
 
   const revisionPosts = useMemo(
-    () => filteredPosts.filter(p => ['text_revision_required', 'media_revision_required', 'revision_required'].includes(p.status)),
+    () => filteredPosts.filter(p => p.status === 'revision_required'),
     [filteredPosts]
   );
 
-  // Kanban Columns following the Recommended Status Flow
+  // Kanban Columns following the Suggested Real Workflow Flow
   const kanbanColumns: { id: PostWorkflowStatus; title: string }[] = [
-    { id: 'draft', title: 'Draft' },
-    { id: 'text_submitted', title: 'Text Submitted' },
-    { id: 'text_approved', title: 'Text Approved' },
-    { id: 'media_in_progress', title: 'Media In Progress' },
-    { id: 'media_submitted', title: 'Media Submitted' },
-    { id: 'pending_admin_approval', title: 'Admin Approval' },
+    { id: 'assigned', title: 'Assigned' },
+    { id: 'in_progress', title: 'In Progress' },
+    { id: 'submitted', title: 'Submitted' },
+    { id: 'under_review', title: 'Under Review' },
+    { id: 'recommended_to_admin', title: 'Recommended to Admin' },
     { id: 'ready_to_publish', title: 'Ready to Publish' },
     { id: 'published', title: 'Live Published' },
   ];

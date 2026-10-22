@@ -9,6 +9,7 @@ export interface EmptyStateProps {
   description: string;
   actionLabel?: string;
   onAction?: () => void;
+  action?: React.ReactNode;
   className?: string;
 }
 
@@ -18,6 +19,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   description,
   actionLabel,
   onAction,
+  action,
   className,
 }) => {
   return (
@@ -32,7 +34,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       </div>
       <h3 className="text-base font-semibold text-foreground tracking-tight">{title}</h3>
       <p className="mt-1.5 max-w-sm text-sm text-muted-foreground leading-relaxed">{description}</p>
-      {actionLabel && onAction && (
+      {action && <div className="mt-5">{action}</div>}
+      {!action && actionLabel && onAction && (
         <div className="mt-5">
           <Button onClick={onAction} variant="primary" size="sm">
             {actionLabel}

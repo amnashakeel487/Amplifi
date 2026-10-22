@@ -3,17 +3,20 @@ import DOMPurify from 'dompurify';
 
 interface FormattedContentProps {
   html?: string;
+  content?: string;
   fallbackText?: string;
   className?: string;
 }
 
 export const FormattedContent: React.FC<FormattedContentProps> = ({
   html,
+  content,
   fallbackText,
   className = '',
 }) => {
-  if (html && html.trim() && html !== '<p></p>') {
-    const cleanHtml = DOMPurify.sanitize(html, {
+  const effectiveHtml = html || content;
+  if (effectiveHtml && effectiveHtml.trim() && effectiveHtml !== '<p></p>') {
+    const cleanHtml = DOMPurify.sanitize(effectiveHtml, {
       ALLOWED_TAGS: [
         'p', 'b', 'i', 'em', 'strong', 'a', 'h1', 'h2', 'h3',
         'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'br', 'span'

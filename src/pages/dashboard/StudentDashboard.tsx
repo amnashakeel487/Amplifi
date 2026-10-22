@@ -12,11 +12,13 @@ import {
   HardDrive,
   Lock,
   Plus,
-  Copy,
+  Video,
+  Image as ImageIcon,
+  RotateCcw,
 } from 'lucide-react';
 import { mockDb } from '@/lib/mock-db';
 import { useAuth } from '@/context/AuthContext';
-import { Post } from '@/lib/types';
+import { Post, PriorityLevel } from '@/lib/types';
 import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { PriorityBadge } from '@/components/ui/priority-badge';
@@ -24,17 +26,34 @@ import { DeadlineChip } from '@/components/ui/deadline-chip';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { StudentSubmissionModal } from '@/components/submissions/StudentSubmissionModal';
-import { CreatePostDrawer } from '@/components/posts/CreatePostDrawer';
 import { CopyTextActions } from '@/components/ui/copy-text-actions';
 import { FormattedContent } from '@/components/ui/formatted-content';
+import { Drawer } from '@/components/ui/drawer';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import { useNotifications } from '@/context/NotificationContext';
 
 export const StudentDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [submissionModalPost, setSubmissionModalPost] = useState<Post | null>(null);
-  const [createPostDrawerOpen, setCreatePostDrawerOpen] = useState(false);
+  const { showToast } = useNotifications();
 
-  // Scoped posts for current student creator (Requirement 7)
+  const [submissionModalPost, setSubmissionModalPost] = useState<Post | null>(null);
+
+  // Student Creates Own Post Drawer (Requirement 4)
+  const [createPostDrawerOpen, setCreatePostDrawerOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newProjectId, setNewProjectId] = useState('');
+  const [newContentType, setNewContentType] = useState<'video' | 'image'>('video');
+  const [newDescriptionHtml, setNewDescriptionHtml] = useState('');
+  const [newHashtags, setNewHashtags] = useState('');
+  const [newDeadline, setNewDeadline] = useState(
+    new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]
+  );
+
+  // Scoped queries: student sees ONLY their assigned projects and posts (Requirement 4 & 7)
+  const myProjects = useMemo(() => mockDb.getProjectsForUser(user || undefined), [user]);
   const myTasks = useMemo(() => {
     return mockDb.getPostsForUser(user || undefined).sort((a, b) => {
       if (!a.deadline) return 1;
@@ -43,28 +62,88 @@ export const StudentDashboard: React.FC = () => {
     });
   }, [user]);
 
-  const assignedFolderId = user?.assigned_drive_folder_id || '1AbC_dRiVe_AlexRivera_Folder2026';
-  const assignedFolderUrl = user?.assigned_drive_folder_url || `https://drive.google.com/drive/folders/${assignedFolderId}`;
+  const myFolders = useMemo(() => {
+    if (!user) return [];
+    return mockDb.getStudentFolders(undefined, user.id);
+  }, [user]);
 
-  const revisionNeededTasks = useMemo(
-    () => myTasks.filter(p => ['text_revision_required', 'media_revision_required', 'revision_required'].includes(p.status)),
+  const revisionTasks = useMemo(
+    () => myTasks.filter(p => p.status === 'revision_required'),
     [myTasks]
   );
 
-  const mediaReadyTasks = useMemo(
-    () => myTasks.filter(p => ['text_approved', 'media_in_progress'].includes(p.status)),
+  const activeDraftingTasks = useMemo(
+    () => myTasks.filter(p => ['assigned', 'student_created', 'in_progress', 'draft'].includes(p.status)),
     [myTasks]
   );
 
-  const textDraftingTasks = useMemo(
-    () => myTasks.filter(p => ['draft', 'text_submitted', 'assigned', 'in_progress'].includes(p.status)),
+  const inReviewTasks = useMemo(
+    () => myTasks.filter(p => ['submitted', 'under_review', 'manager_approved', 'recommended_to_admin'].includes(p.status)),
     [myTasks]
   );
 
-  const submittedTasks = useMemo(
-    () => myTasks.filter(p => ['media_submitted', 'manager_approved', 'pending_admin_approval', 'approved', 'ready_to_publish', 'published'].includes(p.status)),
+  const completedTasks = useMemo(
+    () => myTasks.filter(p => ['approved', 'ready_to_publish', 'published'].includes(p.status)),
     [myTasks]
   );
+
+  // Handle student creating own post (Requirement 4: origin = 'student_created')
+  const handleStudentCreatePost = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTitle.trim()) {
+      showToast({ type: 'error', message: 'Please provide a title.' });
+      return;
+    }
+    if (!newProjectId) {
+      showToast({ type: 'error', message: 'Please select a campaign project.' });
+      return;
+    }
+
+    const selectedProj = mockDb.getProject(newProjectId);
+
+    const parsedHashtags = newHashtags
+      .split(/[,\s]+/)
+      .map(h => (h.startsWith('#') ? h : `#${h}`))
+      .filter(h => h.length > 1);
+
+    const created = mockDb.createPost({
+      project_id: newProjectId,
+      title: newTitle.trim(),
+      description_html: newDescriptionHtml,
+      caption: newDescriptionHtml.replace(/<[^>]*>/g, '').trim(),
+      content_type: newContentType,
+      origin: 'student_created',
+      status: 'student_created',
+      priority: 'medium',
+      deadline: newDeadline,
+      assigned_student_id: user?.id,
+      assigned_manager_id: selectedProj?.assigned_manager_id,
+      platforms: ['linkedin', 'instagram'],
+      hashtags: parsedHashtags,
+      created_by: user?.id,
+    });
+
+    mockDb.logAudit({
+      user_id: user?.id,
+      user_email: user?.email,
+      user_role: 'student',
+      action: 'STUDENT_CREATED_POST',
+      entity_type: 'post',
+      entity_id: created.id,
+      details: { title: newTitle.trim(), content_type: newContentType },
+    });
+
+    showToast({
+      type: 'success',
+      title: 'Post Created',
+      message: `"${newTitle}" created in ${selectedProj?.name}. You can now submit your media deliverable.`,
+    });
+
+    setCreatePostDrawerOpen(false);
+    setNewTitle('');
+    setNewDescriptionHtml('');
+    setNewHashtags('');
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in-50">
@@ -72,248 +151,240 @@ export const StudentDashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-            Creator Creative Workspace
+            Student Creative Workspace
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Write copy, preserve ChatGPT formatting, and deliver media into your assigned Drive folder.
+            Write ChatGPT-formatted copy and upload deliverables into your assigned Video and Image folders.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="primary"
-            onClick={() => setCreatePostDrawerOpen(true)}
-            leftIcon={<Plus className="h-4 w-4" />}
-          >
-            Draft New Post
-          </Button>
-          <a
-            href={assignedFolderUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors"
-          >
-            <HardDrive className="h-4 w-4 text-primary-600" />
-            <span>Open Assigned Drive</span>
-            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-          </a>
+          {myProjects.length > 0 && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setNewProjectId(myProjects[0]?.id || '');
+                setCreatePostDrawerOpen(true);
+              }}
+              leftIcon={<Plus className="h-4 w-4" />}
+            >
+              Create My Own Post
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Prominent Assigned Drive Folder Notice (Requirement 3) */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-4 dark:border-blue-900/60 dark:bg-blue-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-soft-sm">
-        <div className="flex items-start gap-3">
-          <div className="p-2.5 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
-            <HardDrive className="h-5 w-5" />
+      {/* Assigned Folders Banner (Requirement 2 & 4: distinct video & image folders) */}
+      {myFolders.length > 0 && (
+        <div className="p-4 rounded-xl border border-border/80 bg-card shadow-soft space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground uppercase flex items-center gap-2">
+              <HardDrive className="h-4 w-4 text-primary-500" />
+              <span>Your Assigned Cloud Storage Folders</span>
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              Configured by Administrator • Least Privilege
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-blue-950 dark:text-blue-200">
-                Your Assigned Google Drive Folder (Admin Shared)
-              </h3>
-              <span className="text-[10px] font-mono bg-blue-200/70 dark:bg-blue-900 text-blue-800 dark:text-blue-300 px-1.5 py-0.5 rounded font-bold uppercase">
-                Least Privilege Verified
-              </span>
-            </div>
-            <p className="text-xs text-blue-800/90 dark:text-blue-300/90 mt-0.5">
-              Folder ID: <code className="font-mono font-semibold">{assignedFolderId}</code>. Once text is approved, all images and videos must be uploaded into this folder.
-            </p>
-          </div>
-        </div>
-        <a
-          href={assignedFolderUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="self-start sm:self-auto shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-white dark:bg-blue-900/60 border border-blue-300 dark:border-blue-800 px-3 py-1.5 rounded-lg hover:shadow-sm"
-        >
-          View Folder <ExternalLink className="h-3.5 w-3.5" />
-        </a>
-      </div>
 
-      {/* Top Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <StatCard
-          title="Revisions Requested"
-          value={revisionNeededTasks.length}
-          subtitle="Feedback to address"
-          icon={<AlertCircle className="h-5 w-5 text-orange-500" />}
-          className={revisionNeededTasks.length > 0 ? 'border-orange-300 dark:border-orange-900/60' : ''}
-        />
-        <StatCard
-          title="Media Stage Unlocked"
-          value={mediaReadyTasks.length}
-          subtitle="Text approved; ready for Drive upload"
-          icon={<HardDrive className="h-5 w-5 text-blue-600" />}
-        />
-        <StatCard
-          title="Text Stage"
-          value={textDraftingTasks.length}
-          subtitle="Under review or drafting"
-          icon={<Clock className="h-5 w-5 text-indigo-500" />}
-        />
-        <StatCard
-          title="Delivered / Approved"
-          value={submittedTasks.length}
-          subtitle="Signed off by management"
-          icon={<CheckCircle2 className="h-5 w-5 text-emerald-500" />}
-        />
-      </div>
-
-      {/* Revision Alerts Banner */}
-      {revisionNeededTasks.length > 0 && (
-        <div className="rounded-xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-900/60 dark:bg-orange-950/30">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <h4 className="text-sm font-semibold text-orange-900 dark:text-orange-200">
-                Action Required: Feedback on {revisionNeededTasks.length} Post(s)
-              </h4>
-              <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
-                Your campaign manager has returned copy or media adjustments. Please review the feedback and resubmit.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {myFolders.map(folder => (
+              <div
+                key={folder.id}
+                className="p-3 rounded-lg border border-border/60 bg-muted/20 text-xs space-y-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground flex items-center gap-1 uppercase text-[10px]">
+                    {folder.media_type === 'video' ? (
+                      <Video className="h-3.5 w-3.5 text-indigo-500" />
+                    ) : (
+                      <ImageIcon className="h-3.5 w-3.5 text-emerald-500" />
+                    )}
+                    {folder.media_type} Folder
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-semibold">
+                    {folder.verification_status === 'verified' ? '✓ Verified' : folder.verification_status}
+                  </span>
+                </div>
+                <p className="font-mono text-[11px] text-muted-foreground truncate">
+                  {folder.drive_folder_id || 'Not set'}
+                </p>
+                {folder.drive_folder_url && (
+                  <a
+                    href={folder.drive_folder_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-primary-600 hover:underline flex items-center gap-1 pt-0.5"
+                  >
+                    <span>Open in Drive</span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Task List (Due-Soon First) */}
-      <div className="space-y-4">
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          title="Active Deliverables"
+          value={activeDraftingTasks.length}
+          subtitle="Assigned to draft"
+          icon={<Clock className="h-5 w-5 text-amber-500" />}
+        />
+        <StatCard
+          title="Revisions Needed"
+          value={revisionTasks.length}
+          subtitle="Feedback from manager"
+          icon={<RotateCcw className="h-5 w-5 text-orange-500" />}
+        />
+        <StatCard
+          title="In Review"
+          value={inReviewTasks.length}
+          subtitle="Awaiting manager or admin"
+          icon={<Sparkles className="h-5 w-5 text-purple-500" />}
+        />
+        <StatCard
+          title="Completed Content"
+          value={completedTasks.length}
+          subtitle="Approved or live"
+          icon={<CheckCircle2 className="h-5 w-5 text-emerald-500" />}
+        />
+      </div>
+
+      {/* Action Required: Revisions */}
+      {revisionTasks.length > 0 && (
+        <div className="rounded-xl border border-orange-200 dark:border-orange-900/60 bg-orange-50/50 dark:bg-orange-950/20 p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            <h3 className="text-sm font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide">
+              Revisions Requested by Manager ({revisionTasks.length})
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {revisionTasks.map(p => (
+              <div
+                key={p.id}
+                className="p-3.5 rounded-lg border border-orange-200 dark:border-orange-900 bg-card flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+              >
+                <div>
+                  <h4 className="font-semibold text-foreground text-sm">{p.title}</h4>
+                  <p className="text-orange-700 dark:text-orange-300 mt-0.5">
+                    <strong>Manager Note:</strong> {p.revision_instructions || 'Please review feedback comments.'}
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setSubmissionModalPost(p)}
+                  className="bg-orange-600 hover:bg-orange-700 shrink-0"
+                >
+                  Resubmit Deliverable
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Main Deliverables Section */}
+      <div className="rounded-xl border border-border/80 bg-card p-6 shadow-soft space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-foreground">My Post Deliverables</h2>
-          <span className="text-xs text-muted-foreground">{myTasks.length} assigned</span>
+          <div>
+            <h2 className="text-base font-semibold text-foreground">My Deliverables</h2>
+            <p className="text-xs text-muted-foreground">
+              Posts assigned to you or created by you in your campaign projects
+            </p>
+          </div>
         </div>
 
         {myTasks.length === 0 ? (
           <EmptyState
-            title="No Active Assignments"
-            description="You currently have no assigned tasks. Click 'Draft New Post' to initiate your first social post."
-            actionLabel="Draft New Post"
-            onAction={() => setCreatePostDrawerOpen(true)}
+            icon={<FileText className="h-10 w-10 text-muted-foreground" />}
+            title="No Deliverables Yet"
+            description={
+              myProjects.length > 0
+                ? "You have no active deliverables assigned yet. Use the 'Create My Own Post' button above to draft a post in your campaign project."
+                : "You have not been assigned to any campaign projects yet. An Administrator must assign you to a project first."
+            }
           />
         ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {myTasks.map(post => {
-              const isTextApproved = ['text_approved', 'media_in_progress', 'media_submitted', 'media_revision_required'].includes(post.status);
-              const isRevision = ['text_revision_required', 'media_revision_required', 'revision_required'].includes(post.status);
+          <div className="divide-y divide-border/60">
+            {myTasks.map(p => {
+              const isReadyForSubmission = ['assigned', 'student_created', 'in_progress', 'draft', 'revision_required'].includes(p.status);
 
               return (
                 <div
-                  key={post.id}
-                  className={`rounded-xl border bg-card p-5 shadow-soft transition-all duration-150 space-y-4 ${
-                    isRevision
-                      ? 'border-orange-300 dark:border-orange-900/60 ring-1 ring-orange-200/50'
-                      : 'border-border/80 hover:border-primary-500/40'
-                  }`}
+                  key={p.id}
+                  className="py-4 flex flex-col sm:flex-row sm:items-start justify-between gap-4"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge status={post.status} />
-                        <PriorityBadge priority={post.priority} />
-                        <DeadlineChip deadline={post.deadline} />
-                      </div>
-                      <h3 className="text-base sm:text-lg font-semibold text-foreground mt-2">
-                        {post.title}
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        Client Project: <span className="font-semibold text-foreground">{post.project?.name}</span>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-start">
-                      {isTextApproved ? (
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          onClick={() => setSubmissionModalPost(post)}
-                          rightIcon={<UploadCloud className="h-4 w-4" />}
-                        >
-                          Submit Media (Drive)
-                        </Button>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-1 rounded-md border border-amber-200">
-                            <Lock className="h-3 w-3" /> Media Locked Until Text Approved
-                          </span>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => navigate(`/posts/${post.id}`)}
-                            rightIcon={<ArrowRight className="h-4 w-4" />}
-                          >
-                            Edit Text
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Formatted Description Preview with Copy Actions (Requirement 2) */}
-                  <div className="rounded-lg bg-muted/20 border border-border/60 p-3.5 space-y-2">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-border/40">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <FileText className="h-3.5 w-3.5 text-primary-600" />
-                        Formatted Description & Copy
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={p.status} size="sm" />
+                      <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase bg-muted px-2 py-0.5 rounded font-bold">
+                        {p.content_type === 'video' ? (
+                          <Video className="h-3 w-3 text-indigo-500" />
+                        ) : (
+                          <ImageIcon className="h-3 w-3 text-emerald-500" />
+                        )}
+                        {p.content_type}
                       </span>
-                      <CopyTextActions
-                        htmlContent={post.description_html}
-                        plainText={post.caption}
-                        size="xs"
-                      />
+                      <DeadlineChip deadline={p.deadline} />
+                      <PriorityBadge priority={p.priority} />
                     </div>
-                    <FormattedContent
-                      html={post.description_html}
-                      fallbackText={post.caption}
-                    />
+
+                    <h3 className="text-sm font-bold text-foreground">{p.title}</h3>
+
+                    {/* Formatted Content Preview */}
+                    <div className="p-3 rounded-lg bg-muted/20 border border-border/50 text-xs">
+                      <div className="flex items-center justify-between pb-1 mb-1 border-b border-border/40">
+                        <span className="text-[11px] font-semibold text-muted-foreground uppercase">
+                          Copy Preview
+                        </span>
+                        <CopyTextActions
+                          htmlContent={p.description_html}
+                          plainText={p.caption}
+                          size="sm"
+                        />
+                      </div>
+                      <FormattedContent content={p.description_html || p.caption || ''} />
+                    </div>
 
                     {/* Hashtags */}
-                    {post.hashtags && post.hashtags.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-2">
-                        {post.hashtags.map(t => (
+                    {p.hashtags && p.hashtags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {p.hashtags.map((h, i) => (
                           <span
-                            key={t}
-                            className="text-[11px] font-medium text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/40 px-2 py-0.5 rounded border border-primary-200 dark:border-primary-900"
+                            key={i}
+                            className="text-[10px] font-mono text-primary-600 bg-primary-50 dark:bg-primary-950 px-1.5 py-0.5 rounded"
                           >
-                            #{t}
+                            {h}
                           </span>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Revision Feedback Banner */}
-                  {isRevision && post.revision_instructions && (
-                    <div className="bg-orange-50 dark:bg-orange-950/40 rounded-lg p-3 border border-orange-200 dark:border-orange-900 text-xs space-y-1">
-                      <span className="font-semibold text-orange-900 dark:text-orange-200">
-                        Manager Instructions:
-                      </span>
-                      <p className="text-orange-800 dark:text-orange-300 leading-relaxed">
-                        {post.revision_instructions}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Submission Links & Footer */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-xs">
-                    <div className="flex items-center gap-3 text-muted-foreground">
-                      <a
-                        href={assignedFolderUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 hover:text-primary-600 underline font-medium"
+                  <div className="flex flex-col sm:items-end gap-2 shrink-0">
+                    {isReadyForSubmission && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => setSubmissionModalPost(p)}
+                        leftIcon={<UploadCloud className="h-4 w-4" />}
                       >
-                        <HardDrive className="h-3.5 w-3.5" />
-                        <span>Assigned Drive Folder</span>
-                      </a>
-                      {post.assets && post.assets.length > 0 && (
-                        <span className="text-[11px] font-mono text-emerald-600 font-medium">
-                          ✓ Media v{post.assets.length} Submitted
-                        </span>
-                      )}
-                    </div>
-
-                    <span className="text-[11px] text-muted-foreground">
-                      Manager: <strong className="text-foreground">{post.assigned_manager?.full_name || 'Sarah Jenkins'}</strong>
-                    </span>
+                        Submit {p.content_type.toUpperCase()}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => navigate(`/posts/${p.id}`)}
+                      className="text-xs text-muted-foreground"
+                    >
+                      View Details
+                    </Button>
                   </div>
                 </div>
               );
@@ -332,12 +403,143 @@ export const StudentDashboard: React.FC = () => {
         />
       )}
 
-      {/* Create / Draft Post Drawer */}
-      <CreatePostDrawer
+      {/* Student Create Own Post Drawer (Requirement 4) */}
+      <Drawer
         isOpen={createPostDrawerOpen}
         onClose={() => setCreatePostDrawerOpen(false)}
-        onPostCreated={() => window.location.reload()}
-      />
+        title="Create Student Deliverable Post"
+        description="Initiate your own post within an assigned project. Upload deliverables into your dedicated folders."
+        width="md"
+      >
+        <form onSubmit={handleStudentCreatePost} className="space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">
+              Campaign Project *
+            </label>
+            <Select
+              value={newProjectId}
+              onChange={e => setNewProjectId(e.target.value)}
+              className="mt-1 text-xs"
+              required
+            >
+              <option value="">Select project...</option>
+              {myProjects.map(proj => (
+                <option key={proj.id} value={proj.id}>
+                  {proj.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">
+              Topic / Post Title *
+            </label>
+            <Input
+              value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              placeholder="e.g. 5 Principles of High-Frequency Risk Modeling"
+              className="mt-1"
+              required
+            />
+          </div>
+
+          {/* Content Type */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground uppercase block">
+              Deliverable Media Type *
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer text-xs font-semibold transition-all ${
+                  newContentType === 'video'
+                    ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-500'
+                    : 'border-border/80 hover:bg-muted/40'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="studentContentType"
+                  value="video"
+                  checked={newContentType === 'video'}
+                  onChange={() => setNewContentType('video')}
+                  className="text-indigo-600 focus:ring-indigo-500"
+                />
+                <Video className="h-4 w-4 text-indigo-500" />
+                <span>Video Deliverable</span>
+              </label>
+
+              <label
+                className={`flex items-center gap-2.5 p-3 rounded-xl border cursor-pointer text-xs font-semibold transition-all ${
+                  newContentType === 'image'
+                    ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500'
+                    : 'border-border/80 hover:bg-muted/40'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="studentContentType"
+                  value="image"
+                  checked={newContentType === 'image'}
+                  onChange={() => setNewContentType('image')}
+                  className="text-emerald-600 focus:ring-emerald-500"
+                />
+                <ImageIcon className="h-4 w-4 text-emerald-500" />
+                <span>Image Deliverable</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Rich Text Editor */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-muted-foreground uppercase">
+                Copy / Caption *
+              </label>
+              <span className="text-[11px] text-muted-foreground">Preserves ChatGPT formatting</span>
+            </div>
+            <RichTextEditor
+              content={newDescriptionHtml}
+              onChange={html => setNewDescriptionHtml(html)}
+              placeholder="Paste or write your post copy..."
+              minHeight="120px"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">
+              Hashtags
+            </label>
+            <Input
+              value={newHashtags}
+              onChange={e => setNewHashtags(e.target.value)}
+              placeholder="#FinTech #Innovation #Leadership"
+              className="mt-1 text-xs font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase">
+              Target Deadline
+            </label>
+            <Input
+              type="date"
+              value={newDeadline}
+              onChange={e => setNewDeadline(e.target.value)}
+              className="mt-1 text-xs"
+            />
+          </div>
+
+          <div className="pt-4 border-t border-border flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setCreatePostDrawerOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit">
+              Draft Post
+            </Button>
+          </div>
+        </form>
+      </Drawer>
     </div>
   );
 };
